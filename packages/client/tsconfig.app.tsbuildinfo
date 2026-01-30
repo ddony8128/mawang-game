@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/main.tsx","./src/pages/gamepage.tsx","./src/pages/howtoplaypage.tsx","./src/pages/lobbypage.tsx","./src/pages/mainpage.tsx","./src/pages/resultpage.tsx","./src/pages/roomspage.tsx","./src/stores/clientstore.ts","./src/stores/foggedgamestore.ts","./src/stores/memostore.ts","./src/stores/uistore.ts","./src/types/cards.ts","./src/types/foggedgame.ts","./src/types/identity.ts","./src/types/rest.ts","./src/types/ws.ts"],"version":"5.9.3"}

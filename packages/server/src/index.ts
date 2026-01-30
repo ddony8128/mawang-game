@@ -1,16 +1,18 @@
-import express from "express";
-import cors from "cors";
+import http from "http";
 
-const app = express();
+import "dotenv/config";
 
-app.use(cors());
-app.use(express.json());
+import { createApp } from "./app";
+import { createGameWsServer } from "./ws/server";
 
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
-});
+const app = createApp();
+const server = http.createServer(app);
+
+createGameWsServer(server);
 
 const port = Number(process.env.PORT ?? 4000);
-app.listen(port, () => {
+
+server.listen(port, () => {
   console.log(`Server listening on ${port}`);
 });
+

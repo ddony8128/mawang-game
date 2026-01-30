@@ -1,5 +1,5 @@
 {
-  "name": "mawang_game",
+  "name": "mawang-game",
   "private": true,
   "scripts": {
     "dev": "pnpm -r --parallel dev",
