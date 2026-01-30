@@ -1,11 +1,17 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.roomsRouter = void 0;
+const crypto_1 = __importDefault(require("crypto"));
 const express_1 = require("express");
+const tokenHash_1 = require("../../auth/tokenHash");
 const roomPlayersRepo_1 = require("../../db/roomPlayersRepo");
 const roomsRepo_1 = require("../../db/roomsRepo");
-const apiResponse_1 = require("../apiResponse");
 const supabase_1 = require("../../db/supabase");
+const apiResponse_1 = require("../apiResponse");
+const auth_1 = require("../middleware/auth");
 exports.roomsRouter = (0, express_1.Router)();
 // 3.1 GET /rooms
 exports.roomsRouter.get("/", async (req, res) => {
@@ -44,8 +50,9 @@ exports.roomsRouter.post("/", async (req, res) => {
             return (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to create room", 500);
         }
         const roomId = room.id;
-        const roomPlayerId = crypto.randomUUID();
-        const sessionToken = crypto.randomUUID();
+        const roomPlayerId = crypto_1.default.randomUUID();
+        const sessionToken = crypto_1.default.randomBytes(32).toString("hex");
+        const sessionTokenHash = (0, tokenHash_1.hashSessionToken)(sessionToken);
         const { error: playerError } = await supabase_1.supabase.from("room_players").insert({
             id: roomPlayerId,
             room_id: roomId,
@@ -53,7 +60,8 @@ exports.roomsRouter.post("/", async (req, res) => {
             is_host: true,
             is_ready: false,
             is_in_room: true,
-            // device_id / session_token_hash 등은 추후 보강
+            session_token_hash: sessionTokenHash,
+            // device_id 는 X-Device-Id 를 본격적으로 사용할 때 채운다.
         });
         if (playerError) {
             return (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to create host player", 500);
@@ -111,8 +119,9 @@ exports.roomsRouter.post("/:roomId/join", async (req, res) => {
         if ((count ?? 0) >= maxPlayers) {
             return (0, apiResponse_1.sendError)(res, "CONFLICT", "room is full", 409);
         }
-        const roomPlayerId = crypto.randomUUID();
-        const sessionToken = crypto.randomUUID();
+        const roomPlayerId = crypto_1.default.randomUUID();
+        const sessionToken = crypto_1.default.randomBytes(32).toString("hex");
+        const sessionTokenHash = (0, tokenHash_1.hashSessionToken)(sessionToken);
         const { error: insertError } = await supabase_1.supabase.from("room_players").insert({
             id: roomPlayerId,
             room_id: roomId,
@@ -120,6 +129,7 @@ exports.roomsRouter.post("/:roomId/join", async (req, res) => {
             is_host: false,
             is_ready: false,
             is_in_room: true,
+            session_token_hash: sessionTokenHash,
         });
         if (insertError) {
             return (0, apiResponse_1.sendError)(res, "CONFLICT", "failed to join room", 409);
@@ -144,8 +154,8 @@ exports.roomsRouter.post("/:roomId/join", async (req, res) => {
     }
 });
 // 4.1 GET /rooms/{roomId}/poll
-exports.roomsRouter.get("/:roomId/poll", async (req, res) => {
-    const { roomId } = req.params;
+exports.roomsRouter.get("/:roomId/poll", auth_1.requireRoomAuth, async (req, res) => {
+    const roomId = req.auth.roomId;
     try {
         const { data: room, error: roomError } = await supabase_1.supabase
             .from("rooms")
@@ -185,13 +195,9 @@ exports.roomsRouter.get("/:roomId/poll", async (req, res) => {
     }
 });
 // 4.2 POST /rooms/{roomId}/ready
-exports.roomsRouter.post("/:roomId/ready", async (req, res) => {
-    const { roomId } = req.params;
+exports.roomsRouter.post("/:roomId/ready", auth_1.requireRoomAuth, async (req, res) => {
+    const roomId = req.auth.roomId;
     const { ready } = req.body ?? {};
-    const roomPlayerId = req.header("x-room-player-id") ?? req.header("X-Room-Player-Id");
-    if (!roomPlayerId) {
-        return (0, apiResponse_1.sendError)(res, "AUTH_REQUIRED", "missing X-Room-Player-Id", 401);
-    }
     if (typeof ready !== "boolean") {
         return (0, apiResponse_1.sendError)(res, "BAD_REQUEST", "ready must be boolean");
     }
@@ -210,7 +216,7 @@ exports.roomsRouter.post("/:roomId/ready", async (req, res) => {
         const { data, error } = await supabase_1.supabase
             .from("room_players")
             .update({ is_ready: ready })
-            .eq("id", roomPlayerId)
+            .eq("id", req.auth.roomPlayerId)
             .eq("room_id", roomId)
             .select("is_ready")
             .single();
@@ -224,8 +230,8 @@ exports.roomsRouter.post("/:roomId/ready", async (req, res) => {
     }
 });
 // 4.3 GET /rooms/{roomId}/settings
-exports.roomsRouter.get("/:roomId/settings", async (req, res) => {
-    const { roomId } = req.params;
+exports.roomsRouter.get("/:roomId/settings", auth_1.requireRoomAuth, async (req, res) => {
+    const roomId = req.auth.roomId;
     try {
         const { data, error } = await supabase_1.supabase
             .from("rooms")
@@ -242,8 +248,8 @@ exports.roomsRouter.get("/:roomId/settings", async (req, res) => {
     }
 });
 // 4.4 PATCH /rooms/{roomId}/settings
-exports.roomsRouter.patch("/:roomId/settings", async (req, res) => {
-    const { roomId } = req.params;
+exports.roomsRouter.patch("/:roomId/settings", auth_1.requireRoomAuth, async (req, res) => {
+    const roomId = req.auth.roomId;
     const { settings } = req.body ?? {};
     if (typeof settings !== "object" || settings == null) {
         return (0, apiResponse_1.sendError)(res, "BAD_REQUEST", "settings must be object");
@@ -265,8 +271,8 @@ exports.roomsRouter.patch("/:roomId/settings", async (req, res) => {
     }
 });
 // 4.5 POST /rooms/{roomId}/start
-exports.roomsRouter.post("/:roomId/start", async (req, res) => {
-    const { roomId } = req.params;
+exports.roomsRouter.post("/:roomId/start", auth_1.requireRoomAuth, auth_1.requireHost, async (req, res) => {
+    const roomId = req.auth.roomId;
     const countdownSec = typeof req.body?.countdownSec === "number" ? req.body.countdownSec : 5;
     try {
         const { data: room, error: roomError } = await supabase_1.supabase
@@ -281,7 +287,7 @@ exports.roomsRouter.post("/:roomId/start", async (req, res) => {
             return (0, apiResponse_1.sendError)(res, "CONFLICT", "room is not in lobby phase", 409);
         }
         // 인원/준비 상태 검증은 추후 보강
-        const gameId = crypto.randomUUID();
+        const gameId = crypto_1.default.randomUUID();
         const endsAtMs = Date.now() + countdownSec * 1000;
         (0, apiResponse_1.sendOk)(res, {
             started: true,
@@ -297,8 +303,8 @@ exports.roomsRouter.post("/:roomId/start", async (req, res) => {
     }
 });
 // 5.1 DELETE /rooms/{roomId}
-exports.roomsRouter.delete("/:roomId", async (req, res) => {
-    const { roomId } = req.params;
+exports.roomsRouter.delete("/:roomId", auth_1.requireRoomAuth, auth_1.requireHost, async (req, res) => {
+    const roomId = req.auth.roomId;
     try {
         const { error } = await supabase_1.supabase.from("rooms").delete().eq("id", roomId);
         if (error) {

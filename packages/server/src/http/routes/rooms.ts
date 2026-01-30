@@ -1,9 +1,13 @@
+import crypto from "crypto";
+
 import { Router } from "express";
 
+import { hashSessionToken } from "../../auth/tokenHash";
 import { listRoomPlayers } from "../../db/roomPlayersRepo";
 import { listRooms } from "../../db/roomsRepo";
-import { sendError, sendOk } from "../apiResponse";
 import { supabase } from "../../db/supabase";
+import { sendError, sendOk } from "../apiResponse";
+import { requireHost, requireRoomAuth } from "../middleware/auth";
 
 export const roomsRouter = Router();
 
@@ -51,7 +55,8 @@ roomsRouter.post("/", async (req, res) => {
 
     const roomId = room.id as string;
     const roomPlayerId = crypto.randomUUID();
-    const sessionToken = crypto.randomUUID();
+    const sessionToken = crypto.randomBytes(32).toString("hex");
+    const sessionTokenHash = hashSessionToken(sessionToken);
 
     const { error: playerError } = await supabase.from("room_players").insert({
       id: roomPlayerId,
@@ -60,7 +65,8 @@ roomsRouter.post("/", async (req, res) => {
       is_host: true,
       is_ready: false,
       is_in_room: true,
-      // device_id / session_token_hash 등은 추후 보강
+      session_token_hash: sessionTokenHash,
+      // device_id 는 X-Device-Id 를 본격적으로 사용할 때 채운다.
     });
 
     if (playerError) {
@@ -128,7 +134,8 @@ roomsRouter.post("/:roomId/join", async (req, res) => {
     }
 
     const roomPlayerId = crypto.randomUUID();
-    const sessionToken = crypto.randomUUID();
+    const sessionToken = crypto.randomBytes(32).toString("hex");
+    const sessionTokenHash = hashSessionToken(sessionToken);
 
     const { error: insertError } = await supabase.from("room_players").insert({
       id: roomPlayerId,
@@ -137,6 +144,7 @@ roomsRouter.post("/:roomId/join", async (req, res) => {
       is_host: false,
       is_ready: false,
       is_in_room: true,
+      session_token_hash: sessionTokenHash,
     });
 
     if (insertError) {
@@ -163,8 +171,8 @@ roomsRouter.post("/:roomId/join", async (req, res) => {
 });
 
 // 4.1 GET /rooms/{roomId}/poll
-roomsRouter.get("/:roomId/poll", async (req, res) => {
-  const { roomId } = req.params;
+roomsRouter.get("/:roomId/poll", requireRoomAuth, async (req, res) => {
+  const roomId = req.auth!.roomId;
 
   try {
     const { data: room, error: roomError } = await supabase
@@ -209,14 +217,9 @@ roomsRouter.get("/:roomId/poll", async (req, res) => {
 });
 
 // 4.2 POST /rooms/{roomId}/ready
-roomsRouter.post("/:roomId/ready", async (req, res) => {
-  const { roomId } = req.params;
+roomsRouter.post("/:roomId/ready", requireRoomAuth, async (req, res) => {
+  const roomId = req.auth!.roomId;
   const { ready } = req.body ?? {};
-
-  const roomPlayerId = req.header("x-room-player-id") ?? req.header("X-Room-Player-Id");
-  if (!roomPlayerId) {
-    return sendError(res, "AUTH_REQUIRED", "missing X-Room-Player-Id", 401);
-  }
 
   if (typeof ready !== "boolean") {
     return sendError(res, "BAD_REQUEST", "ready must be boolean");
@@ -240,7 +243,7 @@ roomsRouter.post("/:roomId/ready", async (req, res) => {
     const { data, error } = await supabase
       .from("room_players")
       .update({ is_ready: ready })
-      .eq("id", roomPlayerId)
+      .eq("id", req.auth!.roomPlayerId)
       .eq("room_id", roomId)
       .select("is_ready")
       .single();
@@ -256,8 +259,8 @@ roomsRouter.post("/:roomId/ready", async (req, res) => {
 });
 
 // 4.3 GET /rooms/{roomId}/settings
-roomsRouter.get("/:roomId/settings", async (req, res) => {
-  const { roomId } = req.params;
+roomsRouter.get("/:roomId/settings", requireRoomAuth, async (req, res) => {
+  const roomId = req.auth!.roomId;
 
   try {
     const { data, error } = await supabase
@@ -277,8 +280,8 @@ roomsRouter.get("/:roomId/settings", async (req, res) => {
 });
 
 // 4.4 PATCH /rooms/{roomId}/settings
-roomsRouter.patch("/:roomId/settings", async (req, res) => {
-  const { roomId } = req.params;
+roomsRouter.patch("/:roomId/settings", requireRoomAuth, async (req, res) => {
+  const roomId = req.auth!.roomId;
   const { settings } = req.body ?? {};
 
   if (typeof settings !== "object" || settings == null) {
@@ -304,8 +307,8 @@ roomsRouter.patch("/:roomId/settings", async (req, res) => {
 });
 
 // 4.5 POST /rooms/{roomId}/start
-roomsRouter.post("/:roomId/start", async (req, res) => {
-  const { roomId } = req.params;
+roomsRouter.post("/:roomId/start", requireRoomAuth, requireHost, async (req, res) => {
+  const roomId = req.auth!.roomId;
   const countdownSec =
     typeof req.body?.countdownSec === "number" ? req.body.countdownSec : 5;
 
@@ -342,8 +345,8 @@ roomsRouter.post("/:roomId/start", async (req, res) => {
 });
 
 // 5.1 DELETE /rooms/{roomId}
-roomsRouter.delete("/:roomId", async (req, res) => {
-  const { roomId } = req.params;
+roomsRouter.delete("/:roomId", requireRoomAuth, requireHost, async (req, res) => {
+  const roomId = req.auth!.roomId;
 
   try {
     const { error } = await supabase.from("rooms").delete().eq("id", roomId);

@@ -2,12 +2,14 @@ import type { WebSocket } from "ws";
 
 import type { GameEngine } from "../engine/types";
 import { createStubGameEngine } from "../engine/stubEngine";
+import { AuthError, verifyRoomSession } from "../auth/authService";
 
 // 간단한 연결 상태
 export type ConnectionState = {
   socket: WebSocket;
   roomId: string;
   roomPlayerId: string;
+  isHost: boolean;
   missCount: number;
   lastPongAtMs: number;
 };
@@ -51,7 +53,7 @@ export class RoomRuntimeManager {
     return room;
   }
 
-  handleRawMessage(socket: WebSocket, msg: any) {
+  async handleRawMessage(socket: WebSocket, msg: any) {
     if (!msg || typeof msg !== "object") return;
 
     const { type, payload } = msg;
@@ -59,18 +61,42 @@ export class RoomRuntimeManager {
     if (type === "ready" && payload && typeof payload.roomId === "string") {
       const roomId: string = payload.roomId;
       const roomPlayerId: string = payload.roomPlayerId;
+      const sessionToken: string = payload.sessionToken;
 
-      const room = this.getOrCreateRoom(roomId);
-      room.attachConnection({
-        socket,
-        roomId,
-        roomPlayerId,
-        missCount: 0,
-        lastPongAtMs: Date.now(),
-      });
+      try {
+        const verified = await verifyRoomSession({ roomId, roomPlayerId, sessionToken });
 
-      // 엔진 상태를 fogging 해서 내려주는 부분은 이후 구현
-      return;
+        const room = this.getOrCreateRoom(roomId);
+        room.attachConnection({
+          socket,
+          roomId: verified.roomId,
+          roomPlayerId: verified.roomPlayerId,
+          isHost: verified.isHost,
+          missCount: 0,
+          lastPongAtMs: Date.now(),
+        });
+
+        // TODO: 엔진 상태를 fogging 해서 내려주는 부분은 이후 구현
+        return;
+      } catch (err) {
+        if (err instanceof AuthError) {
+          this.sendError(socket, {
+            code: "AUTH_FAILED",
+            message: err.message,
+            recoverable: false,
+            next: "go_lobby",
+          });
+        } else {
+          this.sendError(socket, {
+            code: "AUTH_FAILED",
+            message: "failed to verify session",
+            recoverable: false,
+            next: "go_lobby",
+          });
+        }
+        socket.close();
+        return;
+      }
     }
 
     if (type === "pong" && payload && typeof payload.pingId === "string") {
@@ -92,6 +118,26 @@ export class RoomRuntimeManager {
   handleSocketClosed(socket: WebSocket) {
     for (const room of this.rooms.values()) {
       room.detachSocket(socket);
+    }
+  }
+
+  private sendError(
+    socket: WebSocket,
+    payload: {
+      code: string;
+      message: string;
+      recoverable: boolean;
+      next: "retry_ready" | "go_lobby" | "none";
+    },
+  ) {
+    const msg = {
+      type: "error",
+      payload,
+    };
+    try {
+      socket.send(JSON.stringify(msg));
+    } catch {
+      // ignore
     }
   }
 }
