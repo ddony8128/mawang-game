@@ -1,0 +1,489 @@
+- 게임 로직
+    
+    ---
+    
+    ## 0) 핵심 원칙 요약
+    
+    - **WS 레이어**: 인증/방/게임/플레이어 유효성 검증 + 연결 관리 + ping/pong + RDB 스냅샷 저장 + fogged 변환 + WS 송신.
+    - **Engine 레이어**: 게임 규칙 검증(invalid_action) + 상태 변경 + 로그 생성 + 종료 판정 + 엔진 출력 산출.
+    - 모든 입력(플레이어 액션/타이머 만료/시스템 강제 사망)은 **EngineTask 큐**로 들어가며, 엔진은 **단일 처리 흐름(직렬)**로 처리한다.
+    - `ack`는 **2단계**:
+        - `accepted`: WS 레이어가 “컨텍스트 검증 OK + 엔진 큐에 enqueue 완료”를 즉시 알림
+        - `applied`: 엔진이 “룰 검증 통과 + 실제 상태 반영”을 확정 알림
+            
+            (invalid_action이면 applied 없음)
+            
+    
+    ---
+    
+    ## 1) 모듈 구조와 의존성
+    
+    ## 1.1 WebSocket 레이어(Transport) 책임
+    
+    ### 소유/관리
+    
+    - `RoomRuntime`(roomId 단위)
+        - `connections: Map<roomPlayerId, ConnectionState>`
+        - `engine: GameEngine`
+        - `timerLoop`(ping schedule)
+        - `snapshotLoop`(RDB snapshot schedule)
+        - `fogger` 주입(초기화 후 engine 상태에 접근 가능)
+    
+    ### 역할
+    
+    1. **WS 메시지 수신**
+    - `ready`: 세션 검증 후 각 플레이어별 `snapshot` 송신
+    - `action`: 컨텍스트 검증(방/게임/플레이어/세션)만 수행
+        - 통과 시 즉시 `ack(stage=accepted)`
+        - 엔진에 `PLAYER_ACTION` task enqueue
+    - `pong`: connectionState 업데이트
+    1. **error 송신은 WS 레이어 전담**
+    - 컨텍스트 검증 실패, 게임 aborted 등은 `error`로 처리
+    1. **ping/pong & 강제 사망**
+    - 30초마다 `ping`
+    - `pong` 미수신이면 missCount++
+    - *missCount 10회(=5분)**이면 엔진에 `SYSTEM_TASK(FORCE_DEAD_BY_TIMEOUT)` enqueue
+        
+        (hp=0, alive=false 처리)
+        
+    1. **RDB 스냅샷 저장(1분)**
+    - 1분마다 `games_snapshots`에 엔진 “진짜 상태”를 저장
+    - 게임 종료 시 최종 스냅샷 + 결과 기록
+    1. **EngineOutput을 WS 메시지로 브로드캐스트**
+    - 엔진 출력에서:
+        - `invalidAction` → 해당 플레이어에게 `invalid_action`
+        - `appliedAck` → 해당 플레이어에게 `ack(stage=applied)`
+        - `patchesByPlayer` → `patch`
+        - `endState` → `end`
+    
+    ---
+    
+    ## 1.2 Engine 레이어(Game Engine) 책임
+    
+    - `EngineState`(진짜 상태) 단일 소유
+    - `TimerRegistry`로 타이머 스케줄/취소/만료 task 생성
+    - `EngineTask` 큐 처리(직렬)
+    - 룰 검증 실패 시 `invalid_action(actionId, code, message)` 생성
+    - 룰 검증 성공 시 상태 반영 + `ack(stage=applied)` 생성
+    - 매 task 후 종료 조건 검사 → 종료 시 `GameEndState` 생성
+    
+    ---
+    
+    ## 2) TypeScript 인터페이스
+    
+    ## 2.1 EngineTask
+    
+    ```tsx
+    export type EngineTask =
+      | {
+          kind: "PLAYER_ACTION";
+          actionId: string;
+          atMs: number;
+          actorPlayerId: string;
+          actionType: "ability" | "card_use" | "card_give" | "discard";
+          data: any; // 아래 ActionData 타입들
+        }
+      | {
+          kind: "TIMER_FIRED";
+          timerId: string;
+          atMs: number;
+          timerType:
+            | "CARD_DRAW"
+            | "BOMB_EXPLODE"
+            | "EFFECT_EXPIRE"
+            | "WEAKLING_FAKE_HP_TICK";
+          payload: any;
+        }
+      | {
+          kind: "SYSTEM_TASK";
+          atMs: number;
+          type: "FORCE_DEAD_BY_TIMEOUT";
+          playerId: string;
+        }
+      | {
+          kind: "INTERNAL_TASK";
+          atMs: number;
+          type:
+            | "PLAYER_DIED"
+            | "PROCESS_DEATH_CHAIN"
+            | "CHECK_END"
+            | "APPLY_DAMAGE"
+            | "APPLY_HEAL";
+          payload: any;
+        };
+    
+    ```
+    
+    > 원칙: 즉시 처리해야 하는 hp<=0도 “사망 연쇄”가 있으면 INTERNAL_TASK를 추가로 enqueue한다.
+    > 
+    
+    ---
+    
+    ## 2.2 EngineOutput
+    
+    엔진이 한 번의 `processLoop` 사이클에서 누적해서 WS 레이어로 전달할 출력.
+    
+    ```tsx
+    export type EngineOutput = {
+      // 액션 결과: applied ack(룰 통과 확정)
+      appliedAcks?: Array<{
+        actionId: string;
+        playerId: string; // actor
+      }>;
+    
+      // invalid_action(룰 위반)
+      invalidActions?: Array<{
+        actionId: string;
+        playerId: string; // actor
+        code: string;
+        message: string;
+      }>;
+    
+      // fogged patch에 포함될 “플레이어별 변경분(진짜 상태 기반 재료)”
+      // WS 레이어가 fogger를 통해 최종 patch로 변환한다.
+      delta?: EngineDelta;
+    
+      // 종료 상태
+      endState?: GameEndState;
+    
+      // DB 기록 지시(WS 레이어가 수행)
+      dbEvents?: Array<
+        | { type: "SAVE_SNAPSHOT"; reason: "tick" | "end" }
+        | { type: "RECORD_RESULTS"; gameId: string }
+      >;
+    };
+    
+    export type EngineDelta = {
+      // 공개 정보: 모든 플레이어에게 동일하게 반영되는 변화
+      public: {
+        players?: Array<{ playerId: string; hp: number; alive: boolean }>;
+        nextDrawAtMs?: number;
+      };
+    
+      // 비공개 변화: 플레이어별 손패/know/로그 등
+      privateByPlayer?: Record<
+        string,
+        {
+          hand?: CardInstance[]; // replace
+          know?: KnowState; // merge/replace byTarget[targetId]
+          // effects/cooldowns는 fogged에서 필터링되므로 진짜 상태 일부만 알려줘도 되지만,
+          // 단순화를 위해 엔진은 “진짜 상태가 바뀌었다” 신호만 주고
+          // WS가 최신 상태를 fogger로 생성해 replace하도록 해도 됨.
+          stateChanged?: true;
+    
+          logItems?: LogItem[]; // audience already decided by engine
+        }
+      >;
+    };
+    
+    ```
+    
+    ---
+    
+    ## 2.3 TimerRegistry
+    
+    엔진 내부에서 타이머를 관리하되, “만료 시 큐에 TIMER_FIRED task를 넣는 방식”을 지원.
+    
+    ```tsx
+    export interface TimerRegistry {
+      nowMs(): number;
+    
+      // 예약: 특정 시각에 1회 실행
+      scheduleAt(
+        atMs: number,
+        timerType: EngineTask["timerType"],
+        payload: any
+      ): string; // timerId
+    
+      // 예약: now + delay
+      scheduleIn(
+        delayMs: number,
+        timerType: EngineTask["timerType"],
+        payload: any
+      ): string;
+    
+      cancel(timerId: string): void;
+    
+      // (선택) 디버그/복구용
+      list(): Array<{ timerId: string; atMs: number; timerType: string; payload: any }>;
+    }
+    
+    ```
+    
+    구현은 Node `setTimeout`으로 충분. 중요한 건:
+    
+    - 만료 콜백은 상태를 직접 바꾸지 않고, **엔진.enqueue(TIMER_FIRED)**만 한다.
+    
+    ---
+    
+    ## 3) WS ↔ Engine 메시지 플로우(ack 2단계 포함)
+    
+    ### 3.1 action 처리 흐름
+    
+    1. 클라 → WS: `action(actionId, ...)`
+    2. WS 레이어:
+    - 세션/room/game/플레이어 유효성 검증 실패 → `error`
+    - 성공 → 즉시 `ack(actionId, stage=accepted)`
+    - 엔진에 `enqueue(PLAYER_ACTION)`
+    1. 엔진:
+    - 룰 검증 실패 → `invalid_action(actionId, code, message)` 출력
+    - 성공 → 상태 반영 + `appliedAck(actionId)` 출력 + delta 생성
+    1. WS 레이어:
+    - appliedAck → `ack(stage=applied)` 송신
+    - invalid_action → `invalid_action` 송신
+    - delta → fogger로 변환 후 `patch` 송신
+    
+    > 클라 관점:
+    > 
+    > 
+    > accepted = “도착/대기”, applied = “룰 통과 확정”, invalid_action = “거절”.
+    > 
+    
+    ---
+    
+    ## 4) 게임 상태(진짜 상태) 핵심 모델(요약)
+    
+    - DeckState 없음: 드로우는 항상 1장, 4종 25%.
+    - maxHp=3 고정. 약골은 시작 hp=2.
+    - effects는 리스트(중첩 가능). bomb 중첩 가능.
+    - cooldown은 `{skillKey, readyAtMs}` 리스트(타이머 불필요).
+    - 정신병자는 fakeHp 없음.
+    - 약골(fakeHP 개념 아님). 단, “꾀병”은 **표시가 이상하게 보이는 것**이므로 fogger에서 처리.
+    
+    ---
+    
+    ## 5) 초기화(카운트다운 중) v1.1
+    
+    ### 5.1 역할/상태 초기화
+    
+    - settings 기반 역할 풀 구성, 중복 없음, 랜덤 배정
+    - PlayerState:
+        - hp = 3, alive=true
+        - 약골: hp=2
+    - 시작 카드 1장 드로우(25% 균등)
+    - **현자(수정 반영 #3)**:
+        - 능력: “예언: 돋보기를 뽑을 경우, 돋보기 1장 추가 획득”
+        - 구현:
+            - **드로우 결과가 magnifier이면** 즉시 magnifier 카드 인스턴스 1개 더 생성해 손패에 추가
+            - 시작 카드 드로우에도 동일 적용
+    - 악의 하수인:
+        - 참모/타락자는 마왕을 알고 시작(개인 log/modals)
+        - 참모는 게임 내 용사 역할 목록을 알고 시작(개인 log/modals)
+    
+    ### 5.2 타이머 등록
+    
+    - 카드 드로우 타이머:
+        - `settings.drawIntervalMin` 기준 `CARD_DRAW` 예약
+    - 약골 “꾀병”(표시 이상)은 타이머가 아니라 fogger에서 표현 (추후 세부 로직 확정)
+    - 폭탄/효과 만료 타이머는 발생 시점에 등록
+    
+    ---
+    
+    ## 6) 런타임 처리(큐 기반)
+    
+    ## 6.1 공통 룰 검증(PLAYER_ACTION)
+    
+    엔진이 수행. 실패하면 `invalid_action`.
+    
+    대표 코드:
+    
+    - `GAME_NOT_RUNNING`
+    - `YOU_ARE_DEAD`
+    - `EFFECT_BLOCKED`(겁주기 등)
+    - `HAND_LIMIT_EXCEEDED_MUST_DISCARD`
+        - 손패 4장 초과면 discard만 가능
+    - `COOLDOWN_NOT_READY`
+    - `ONE_TIME_USED`
+    - `CARD_NOT_OWNED`
+    - `INVALID_TARGET`
+    - `TARGET_DEAD`
+    
+    성공 시:
+    
+    - 상태 반영 후 `appliedAck(actionId)` 출력
+    
+    ---
+    
+    ## 6.2 카드 인스턴스 처리
+    
+    모든 카드 사용/버리기/양도는 **cardInstanceId 기반**으로 처리해야 함.
+    
+    ### 6.2.1 card_use
+    
+    - 검증:
+        - actor hand에 cardInstanceId 존재
+        - cardType 일치(위조 방지: 서버는 인스턴스에서 타입을 읽고 요청 값은 참고만)
+    - 처리:
+        - 해당 cardInstanceId를 손패에서 제거(consume)
+        - 효과 적용(칼/폭탄/맥주/돋보기)
+    - 로그 생성(개인/전역 규칙에 따라)
+    
+    ### 돋보기 2장/3장 사용
+    
+    - 요청이 `useMode=magnifier2|magnifier3`이면:
+        - actor 손패에서 magnifier 인스턴스를 **정확히 2개/3개** 선택/소모해야 함
+    - 권장 방식(명세 단순화):
+        - 클라가 `cardInstanceIds: string[]`로 **사용할 돋보기 인스턴스 목록**을 보내게 한다
+        - 서버는 그 목록을 검증 후 소모
+            
+            (지금 REST/WS 명세엔 단일 cardInstanceId만 있는데, 돋보기는 예외로 확장하는 걸 강력 권장)
+            
+    
+    ### 6.2.2 discard
+    
+    - `cardInstanceIds[]`를 hand에서 제거
+    - hand <= 4가 되면 다른 액션 가능
+    
+    ### 6.2.3 card_give
+    
+    - giver hand에서 cardInstanceId 제거 → receiver hand에 추가
+    - receiver hand가 4장 초과가 되면:
+        - 초과 상태 유지
+        - receiver는 **discard 전까지** `card_use/card_give/ability` 불가
+    
+    ---
+    
+    ## 6.3 hp <= 0 즉시 처리 + 예외 연쇄
+    
+    - damage/heal 처리 후 hp<=0이면 **즉시 사망 처리**하되,
+    - 예외 연쇄가 필요한 경우:
+        - 마왕 첫 사망(공포의 재림)
+        - 실험체 사망(저주의 숙주)
+        - 분탕 집념 등
+    - 이들은 “사망 처리”를 INTERNAL_TASK로 분리하고 연쇄를 큐에 넣는다.
+    
+    권장 흐름:
+    
+    1. APPLY_DAMAGE → hp 갱신
+    2. hp<=0이면 `enqueue(INTERNAL_TASK: PLAYER_DIED{playerId, cause})`
+    3. PLAYER_DIED 핸들러에서:
+        - 마왕(공포): revive 가능하면 revive 처리 + 전역 로그
+        - 실험체: 악팀 드로우 2장씩 task enqueue
+        - 분탕: stubborn 발동 처리/타이머 등록
+        - 그 외: alive=false 확정
+    
+    ---
+    
+    ## 6.4 타이머 처리
+    
+    - `CARD_DRAW`: 살아있는 플레이어마다 드로우 1장
+        - 현자: magnifier면 1장 추가 생성
+        - 손패 초과 처리: 초과 상태 유지, discard 전까지 제한
+    - `BOMB_EXPLODE`: 대상 hp -=2, bomb 인스턴스 effect 제거
+    - `EFFECT_EXPIRE`: feared/shield/stubborn 등 untilMs 만료 시 제거
+    - `WEAKLING_FAKE_HP_TICK`: (현재 문서에서는 약골에게 fakeHpTick 처리 있다고 했지만)
+        - 너 최신 조건: **약골에게만 처리 있음** / 정신병자는 fakeHp 없음
+        - 단, “약골=꾀병=표시 이상”이므로 실제 hp를 바꾸는 tick인지, 표시만 흔드는 tick인지가 필요
+        - 현재는 placeholder로 남기되, “표시 로직이면 엔진 타이머가 아니라 fogger”로 이동 권장
+    
+    ---
+    
+    ## 6.5 종료 조건 체크
+    
+    - 매 task 처리 후:
+        - 마왕 최종 사망 → good win
+        - 용사 전원 사망 → evil win
+    - 종료 시:
+        - `endState` 생성
+        - `dbEvents: RECORD_RESULTS` 포함
+        - 이후 task 처리 중지
+    
+    ---
+    
+    ## 7) fogger 로직(플레이어별 fogged 변환) v1.1
+    
+    WS 레이어가 `engineState`와 `viewerPlayerId`를 받아 `FoggedGameState`를 생성한다.
+    
+    ## 7.1 공개/비공개 규칙(요약)
+    
+    ### 공개 정보(전원 동일)
+    
+    - 모든 플레이어의 `hp`, `alive`, `nickname`
+    - nextDrawAtMs(카드 뽑기까지 남은 시간)
+    - 게임 메타(state running/ended 여부)
+    
+    ### 비공개 정보(플레이어별)
+    
+    - 내 역할/진영/사이드 (단, “내 역할 숨김 UI”는 클라 UI 문제)
+    - 내 손패(card instances)
+    - 내 effects 중 “보이는 것만”
+        - **폭탄/겁주기/무적 상태는 남들이 볼 수 없음** (viewer 본인에게만)
+    - 내 know(KnownRole)만
+    - 내 로그: “나에게 일어난 일 + 공표 이벤트”만 포함
+    - 팀 로그: 실험체 저주의 숙주 등 “팀에게만 보이는 이벤트”는 해당 팀에만
+    
+    ### 자기에게도 숨겨야 하는 것(self_hidden)
+    
+    - 술자리 권유(타락자) 같은 효과는 대상 본인에게도 숨김
+        
+        → fogger에서 viewer==target이어도 해당 effect/log를 제외
+        
+    
+    ---
+    
+    ## 7.2 fogger 출력 형태(요약)
+    
+    ```tsx
+    function fogger(state: EngineState, viewerId: string): FoggedGameState {
+      // 1) public players 배열 구성 (hp/alive/nickname)
+      // 2) viewer의 me 구성:
+      //   - role/team/side (정신병자/가면놀이 등 fake는 여기서 “보이는 값”으로 치환)
+      //   - hp(약골 표시 이상이 있으면 여기서만 변형)
+      //   - hand (viewer만)
+      //   - effects: viewer가 볼 수 있는 것만
+      //   - cooldowns: viewer의 것만(정신병자 fake 능력/쿨다운은 여기서 표시용 생성)
+      //   - know: viewer know만
+      // 3) log: viewer가 볼 수 있는 로그만 필터링 + modalUi 포함
+      // 4) timers/seq/meta 설정
+    }
+    
+    ```
+    
+    ## 7.3 fake 처리(정신병자 + 가면놀이)
+    
+    - 엔진 내부에는 `realRole`과 `fakePresentation`이 공존할 수 있음
+    - fogger에서 viewer가 정신병자면:
+        - `me.role/team/side`를 fake로 치환
+        - `me.cooldowns`도 fake 능력 기준으로 생성/표시
+        - 능력 사용 시에도 엔진은 아무 변화 없이 “사용된 것처럼” 개인 모달만 생성(이건 엔진 규칙)
+    - 분탕의 마왕 가면놀이:
+        - “돋보기 대상이 될 경우 보일 역할”은
+        - 돋보기 결과 생성 시점에서(엔진) fake role을 결과로 쓰거나
+        - fogger에서 “돋보기 결과 로그/know”를 조작하는 방식 둘 중 하나
+        - 권장: **엔진에서 know 기록 자체를 fake로 기록**(단순)
+    
+    ---
+    
+    ## 8) DB 기록(승패 반영 포함) v1.1
+    
+    ### 8.1 1분 스냅샷
+    
+    - WS 레이어 cron:
+        - `games_snapshots`에 `engineState` 저장(진짜 상태)
+        - 주기: 60초
+        - snapshotVersion, createdAtMs 포함
+    
+    ### 8.2 게임 종료 시 처리
+    
+    엔진이 endState를 확정하면 WS 레이어가 DB 기록 수행:
+    
+    1. `games` 테이블 업데이트:
+        - `ended_at`, `end_reason`, `end_state_json`
+    2. `room_players`의 전적 갱신:
+        - endState에서 승패 계산 후
+        - 해당 room의 (wins/losses) 카운트 업데이트
+    3. 최종 스냅샷 1회 저장
+    
+    ---
+    
+    ## 9) action payload (엔진 관점에서 필요한 최소 수정)
+    
+    현재 WS 명세에서 돋보기 2/3장 사용은 단일 cardInstanceId로 부족함.
+    
+    **권장 변경(최소)**:
+    
+    - `card_use`의 data에 `cardInstanceIds: string[]`를 추가(옵션)
+        - magnifier2/3이면 이 배열을 사용(2개/3개)
+        - knife/bomb/beer는 1개만
+    
+    ---

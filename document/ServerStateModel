@@ -1,0 +1,608 @@
+- 서버 상태
+    
+    
+    ---
+    
+    ## 1. 타입/용어
+    
+    ### 식별자
+    
+    - `RoomId`, `GameId`, `PlayerId`는 UUID 문자열로 표현
+    - `PlayerId` = `room_players.id` (방 내 플레이어 엔트리 ID)
+    
+    ### 시간
+    
+    - 모든 시간은 `...AtMs` 형태의 **epoch milliseconds**
+    - “남은 시간”은 저장하지 않는다(항상 절대시각으로 계산)
+    
+    ---
+    
+    ## 2. 최상위 상태: `GameSnapshot`
+    
+    ```tsx
+    type GameSnapshot = {
+      schemaVersion: 1;
+    
+      ids: {
+        roomId: string; // RoomId
+        gameId: string; // GameId
+        seq: number;    // room 내 n번째 게임
+      };
+    
+      meta: {
+        state: "running" | "ended" | "aborted";
+        createdAtMs: number;
+        startedAtMs: number;
+        endedAtMs?: number;
+    
+        snapshotVersion: number;  // 단조 증가 (모든 patch/event ordering 기준)
+      };
+    
+      settings: GameSettings;      // games.settings와 동일(시작 시점 고정)
+    
+      rng: {
+        seed: string;              // BIGINT 안전을 위해 string 권장
+        counter: number;           // 결정적 랜덤 진행용(선택이지만 강력 권장)
+      };
+    
+      timers: {
+        nowMs: number;             // 스냅샷 생성 시점 서버 시간
+        nextDrawAtMs: number;      // 다음 공통 드로우 절대시각
+      };
+    
+      seating: string[];           // PlayerId[] (표시 순서 고정)
+      players: Record<string, PlayerState>; // key=PlayerId
+    
+      // 플레이어별 “볼 수 있는 로그/모달 생성용 사실 기록”
+      log: GameLogState;
+    };
+    
+    ```
+    
+    > GameSnapshot은 서버에서의 “진짜 상태”이며, 클라로는 그대로 보내지지 않는다.
+    > 
+    > 
+    > 클라에는 `FoggedGameState(playerId)`로 변환해서 broadcast한다(다음 문서).
+    > 
+    
+    ---
+    
+    ## 3. Settings: `GameSettings`
+    
+    ```tsx
+    type GameSettings = {
+      // 카드/드로우
+      drawIntervalSec: 120 | 180 | 240;           // 2/3/4분
+      bombDelaySec: 60 | 180 | 300 | 420;         // 1/3/5/7분
+      handLimit: 3 | 4 | 5;
+    
+      // 마왕
+      fearReviveHp: 1 | 2 | 3;
+      trollSurviveSec: 60 | 180 | 300;
+    
+      // 팀 구성(마왕은 항상 1)
+      teamCounts: { traitor: number; hero: number; civil: number };
+    
+      // GM
+      gmMode: {
+        enabled: boolean;
+        hostIsGM: boolean;
+        fixedRoles: Record<string, RoleKey>;      // PlayerId -> RoleKey
+      };
+    };
+    
+    ```
+    
+    ---
+    
+    ## 4. 플레이어 상태: `PlayerState`
+    
+    > 서버는 플레이어마다 “진짜 정보”와 “가짜 표시 정보(fake*)”를 함께 들고 있으며,
+    > 
+    > 
+    > fogged 상태 생성 시 이를 바탕으로 “해당 플레이어가 화면에서 보는 세계”를 만든다.
+    > 
+    
+    ```tsx
+    type PlayerState = {
+      identity: {
+        playerId: string;       // PlayerId
+        nickname: string;
+      };
+    
+      alive: boolean;
+    
+      // 공개정보
+      hp: number;               // 0~3, 공개
+    
+      // 역할/진영 (서버 진실)
+      role: RoleKey;
+      team: "good" | "evil";
+      side: "hero" | "civil" | "evil" | "traitor";
+    
+      // 손패 (본인 외 비공개)
+      hand: CardInstance[];
+    
+      // 상태/버프/디버프 (원본)
+      effects: Effect[];
+    
+      // 쿨다운 원본(진짜 능력)
+      cooldowns: CooldownItem[];
+    
+      // 내가 알아낸 규칙(타겟별로 상이) - 서버 원본
+      knowledge: {
+        knownByTarget: Record<string, KnownRole[]>; // targetPlayerId -> roles[]
+      };
+    
+      // 가짜 표시(정신병자/분탕 마왕 등) - “보이는 값”을 서버가 결정해 둔다.
+      fake: {
+        // 가짜 정체
+        fakeRole?: RoleKey;
+        fakeTeam?: "good" | "evil";
+        fakeSide?: "hero" | "civil" | "evil" | "traitor";
+    
+        // 가짜 HP (약골의 꾀병/정신병자 등에서 사용)
+        // 원칙: 이 값은 “본인에게도 이렇게 보임”
+        fakeHp?: number;
+    
+        // 가짜 효과/쿨다운(정신병자 망상용)
+        fakeEffects?: Effect[];
+        fakeCooldowns?: CooldownItem[];
+      };
+    };
+    
+    ```
+    
+    ### 4.1 카드 인스턴스
+    
+    ```tsx
+    type CardType = "magnifier" | "knife" | "bomb" | "beer";
+    
+    type CardInstance = {
+      id: string;        // UUID
+      type: CardType;
+      createdAtMs: number;
+    };
+    
+    ```
+    
+    ---
+    
+    ## 5. Effect 모델
+    
+    ### 5.1 공통 형태
+    
+    ```tsx
+    type EffectVisibility =
+      | "public"
+      | "self"            // 본인에게만 보임
+      | "self_hidden"     // 본인에게도 UI로는 보이지 않음(상태만 존재)
+      | "none";           // 어떤 UI에도 직접 노출되지 않음(내부용)
+    
+    type EffectBase = {
+      id: string;            // UUID
+      kind: EffectKind;
+      createdAtMs: number;
+      expiresAtMs?: number;  // 만료 없는 효과는 undefined
+    
+      // “보이는지”는 fogging 생성 시 사용 (타인에게는 어차피 안 보임 정책)
+      visibility: EffectVisibility;
+    
+      // 출처(로그/디버깅/권한 처리)
+      source?: {
+        byPlayerId?: string;   // 누가 걸었는지
+        byCardId?: string;     // 어떤 카드로
+        bySkillKey?: SkillKey; // 어떤 능력으로
+      };
+    };
+    
+    ```
+    
+    ### 5.2 Effect 종류(필수 포함)
+    
+    ```tsx
+    type EffectKind =
+      | "bomb"
+      | "feared"
+      | "shield"
+      | "trollStubborn"     // 분탕 마왕 집념 상태(발동 후 지속)
+      | "fearReviveUsed"    // 공포 마왕 부활 1회 사용 플래그
+      | "slayerUltUsed"     // 슬레이어 필살기 1회 사용 플래그
+      | "beerGuaranteed"   // 술자리 권유(다음 드로우 맥주 확정) - self_hidden 가능
+      | "fakeHpTick";
+    ```
+    
+    ### 5.3 Effect 상세 payload
+    
+    ### A) bomb (중첩 가능)
+    
+    ```tsx
+    type BombEffect = EffectBase & {
+      kind: "bomb";
+      payload: {
+        plantedBy: string;       // PlayerId
+        explodeAtMs: number;     // settings.bombDelaySec 기반
+        damage: 2;               // 고정
+      };
+    };
+    
+    ```
+    
+    ### B) feared (행동 불가)
+    
+    ```tsx
+    type FearedEffect = EffectBase & {
+      kind: "feared";
+      payload: {
+        by: string;              // PlayerId
+        untilMs: number;         // createdAt + 2분
+      };
+    };
+    
+    ```
+    
+    ### C) shield (피해 무효)
+    
+    ```tsx
+    type ShieldEffect = EffectBase & {
+      kind: "shield";
+      payload: {
+        untilMs: number;         // createdAt + 1분
+      };
+    };
+    
+    ```
+    
+    ### D) trollStubborn (분탕 집념)
+    
+    ```tsx
+    type TrollStubbornEffect = EffectBase & {
+      kind: "trollStubborn";
+      payload: {
+        untilMs: number;         // settings.trollSurviveSec
+        triggeredAtMs: number;   // 발동 시각
+      };
+    };
+    
+    ```
+    
+    ### E) fearReviveUsed (플래그)
+    
+    ```tsx
+    type FearReviveUsedEffect = EffectBase & {
+      kind: "fearReviveUsed";
+      payload: { used: true };
+    };
+    
+    ```
+    
+    ### F) slayerUltUsed (플래그)
+    
+    ```tsx
+    type SlayerUltUsedEffect = EffectBase & {
+      kind: "slayerUltUsed";
+      payload: { used: true };
+    };
+    
+    ```
+    
+    ### G) beerGuaranteed (술자리 권유)
+    
+    ```tsx
+    type BeerGuaranteedEffect = EffectBase & {
+      kind: "beerGuaranteed";
+      payload: {
+        forNextDrawAtMs: number; // 다음 드로우에 적용될 시각(또는 drawCounter)
+      };
+    };
+    // visibility : self_hidden으로 고정
+    
+    ```
+    
+    ### H) fakeHpTick (약골 가짜 생명력 계산)
+    
+    ```jsx
+    type FakeHpTickEffect = EffectBase & {
+      kind: "fakeHpTick";
+      payload: {
+        tickAtMs: number;           // 다음 변동 시각
+      };
+    };
+    ```
+    
+    ### 5.4 Effect 유니온
+    
+    ```tsx
+    type Effect =
+      | BombEffect
+      | FearedEffect
+      | ShieldEffect
+      | TrollStubbornEffect
+      | FearReviveUsedEffect
+      | SlayerUltUsedEffect
+      | BeerGuaranteedEffect
+      | FakeHpTickEffect;
+    
+    ```
+    
+    ---
+    
+    ## 6. Cooldown 모델 (리스트)
+    
+    ```tsx
+    type SkillKey =
+      | "mawang_fear"          // 겁주기
+      | "mawang_mask"          // 가면놀이(1회)
+      | "traitor_beer"         // 술자리 권유
+      | "parry_shield"         // 무적방패
+      | "slayer_ult"           // 짱쎈 필살기(1회)
+      | "healer_heal";         // 회복 마법
+    
+    type CooldownItem = {
+      skillKey: SkillKey;
+      readyAtMs: number;       // 이 시각 이후 사용 가능
+    };
+    
+    ```
+    
+    - 1회 제한 스킬은 `readyAtMs`만으로 표현하기 애매하므로(“한 번 쓰면 영구 불가”):
+        - `slayer_ult` / `mawang_mask`는 `effects`에 `slayerUltUsed` 같은 플래그를 추가하여 사용 여부를 판단한다.
+        - (즉) **쿨타임은 리스트**, **1회 소모는 Effect 플래그**로 처리.
+    
+    > 정신병자(망상)는 fake.fakeCooldowns에 “가짜 스킬”을 넣어 UI가 그럴듯하게 보이도록 한다.
+    > 
+    
+    ---
+    
+    ## 7. Knowledge: `KnowRole` (이름 변경 반영)
+    
+    ```tsx
+    type KnowRole =
+      | {
+          kind: "team";
+          team: "good" | "evil";
+          obtainedAtMs: number;
+          by: "magnifier2" | "skill";
+        }
+      | {
+          kind: "role";
+          role: RoleKey;
+          obtainedAtMs: number;
+          by: "magnifier3" | "skill";
+        };
+    
+    ```
+    
+    - `knowledge.knownByTarget[targetId]`에는 `KnowRole[]`가 누적될 수 있음
+        
+        (예: 팀 확인 후 역할까지 확인)
+        
+    
+    ---
+    
+    ## 8. 승리/종료 처리: `GameEndState` (별도 전달)
+    
+    > 게임 종료는 GameSnapshot의 log에서 결정하지 않는다.
+    > 
+    > 
+    > 서버가 승리조건을 계산하여 게임 종료 시점에 **각 플레이어에게 별도 패킷**으로 전달한다.
+    > 
+    
+    ```tsx
+    type GameEndReason = "MAWANG_DEAD" | "ALL_HERO_DEAD" | "ABORTED";
+    
+    type GameEndState = {
+      gameId: string;
+      roomId: string;
+      seq: number;
+    
+      endedAtMs: number;
+      reason: GameEndReason;
+    
+      // 각 플레이어 결과(모두에게 공개)
+      results: Array<{
+        playerId: string;
+        nickname: string;
+    
+        win: boolean;       // 승/패
+        alive: boolean;
+    
+        role: RoleKey;
+        team: "good" | "evil";
+        side: "hero" | "civil" | "evil" | "traitor";
+      }>;
+    };
+    
+    ```
+    
+    - 이 정보는 결과 화면에서 그대로 렌더링 가능
+    - `room_players.wins/losses` 반영도 이 결과를 기반으로 진행
+    
+    ---
+    
+    ## 9. 로그/모달 시스템: `GameLogState` / `LogItem`
+    
+    ### 9.1 목적
+    
+    - 서버가 “사실 이벤트”를 누적해두고,
+    - 각 플레이어의 fogged 상태 생성 시:
+        - **그 플레이어가 볼 수 있는 로그**
+        - **강제 모달 큐에 넣을 항목**
+            
+            을 생성하는 기반 데이터로 사용
+            
+    
+    ### 9.2 구조
+    
+    ```tsx
+    type LogAudience =
+      | { kind: "global" }                 // 전원에게 보임(공표)
+      | { kind: "team"; team: "evil" }     // 팀 단위(현재는 evil만 필요)
+      | { kind: "player"; playerId: string }; // 개인
+    
+    type LogItem = {
+      id: string;         // UUID
+      seq: number;        // 단조 증가
+      atMs: number;
+    
+      type: LogType;
+      audience: LogAudience;
+    
+      // 원본 데이터(서버 내부/문구 템플릿 렌더링용)
+      payload: Record<string, any>;
+    
+      // 이 이벤트가 “강제 모달” 대상인지(대상은 audience로 결정)
+      modal: boolean;
+    };
+    
+    ```
+    
+    ### 9.3 LogType
+    
+    ### 전역(공표, 전원 모달)
+    
+    ```tsx
+    type LogTypeGlobal =
+      | "GLOBAL_FEAR_REVIVE_TRIGGERED"     // 공포의 재림 발동
+      | "GLOBAL_TROLL_STUBBORN_TRIGGERED"  // 분탕의 집념 발동
+      | "GLOBAL_SLAYER_ULT_USED";          // 짱쎈 필살기 발동
+    
+    ```
+    
+    ### 개인(개인 모달)
+    
+    ```tsx
+    type LogTypePersonal =
+      | "PERSONAL_DIED"                    // 나의 사망
+      | "PERSONAL_SKILL_USED"              // 내가 스킬 사용(겁주기/가면놀이/술자리 권유/무적방패/회복마법)
+      | "PERSONAL_CARD_USED"               // 내가 카드 사용(칼/폭탄/맥주/돋보기)
+      | "PERSONAL_HIT_BY_KNIFE"            // 내가 칼을 맞음
+      | "PERSONAL_BOMB_PLANTED_ON_ME"      // 내게 폭탄 설치됨
+      | "PERSONAL_BOMB_EXPLODED_ON_ME"     // 내 폭탄 터짐
+      | "PERSONAL_CARD_GIVEN"              // 내가 카드를 양도함
+      | "PERSONAL_CARD_RECEIVED"           // 내가 카드를 양도받음
+      | "PERSONAL_COWARD_CARD_FAILED"      // 겁쟁이: 카드 사용 무효
+      | "PERSONAL_AIDE_HERO_LIST"          // 참모: 시작 시 용사 구성 목록 알림
+      ;
+    
+    ```
+    
+    ### 팀(악 팀, 팀 모달/로그)
+    
+    ```tsx
+    type LogTypeTeam =
+      | "EVIL_TEAM_EXPERIMENT_HOST_DIED_BONUS"; // 실험체: 악팀 카드 2장씩 획득
+    
+    ```
+    
+    ### 통합
+    
+    ```tsx
+    type LogType = LogTypeGlobal | LogTypePersonal | LogTypeTeam;
+    
+    type GameLogState = {
+      lastSeq: number;
+      items: LogItem[];
+    };
+    
+    ```
+    
+    ### 9.4 payload 최소 규격(권장)
+    
+    각 LogType별로 payload에 들어가야 할 최소 키를 정해두면 fogged 렌더링이 깔끔해짐.
+    
+    예시:
+    
+    - `PERSONAL_HIT_BY_KNIFE`: `{ byPlayerId, damage: 1, newHp }`
+    - `PERSONAL_BOMB_PLANTED_ON_ME`: `{ byPlayerId, explodeAtMs, damage: 2 }`
+    - `PERSONAL_CARD_GIVEN`: `{ cardType, toPlayerId }`
+    - `PERSONAL_CARD_RECEIVED`: `{ cardType, fromPlayerId }`
+    - `GLOBAL_SLAYER_ULT_USED`: `{ byPlayerId, targetPlayerId, damage: 3 }`
+    - `PERSONAL_AIDE_HERO_LIST`: `{ heroRolesInGame: RoleKey[] }` *(“용사가 누구누구가 있다”는 역할 목록)*
+    
+    ---
+    
+    ## 10. 스케줄/만료 처리(서버 루프 규칙)
+    
+    ScheduledState를 두지 않는 대신, 서버는 다음을 기준으로 “다음 처리 시각”을 계산할 수 있어야 함.
+    
+    ### 10.1 만료/트리거 대상
+    
+    - `timers.nextDrawAtMs` (드로우)
+    - `effects[*].expiresAtMs` 또는 effect payload의 `untilMs/explodeAtMs`
+        - bomb 폭발
+        - feared 종료
+        - shield 종료
+        - trollStubborn 종료
+        - beerGuaranteed 적용(다음 드로우 시점에서 소비)
+    - `cooldowns[*].readyAtMs` (사실상 UI용이지만, 사용 가능 여부 판정에 필요)
+    
+    ### 10.2 폭탄 중첩 처리
+    
+    - bomb은 여러 개가 동시에 붙을 수 있음
+    - 폭발 시점에 해당 bomb만 제거 + 피해 적용
+    - 피해 적용 후 `hp<=0`이면 사망 처리(단, 마왕 집념/부활 규칙이 개입할 수 있음)
+    
+    ---
+    
+    ## 11. 정신병자/약골/분탕 마왕에 대한 “fake” 적용 원칙
+    
+    ### 11.1 공통
+    
+    - fake 값은 “클라에서 계산”하지 않고 **서버 스냅샷에 저장**한다.
+        - 재접속/스냅샷 복구 시 일관성이 유지됨
+    - fake 적용 로직은 “실제 role 기반”으로 서버가 결정
+    
+    ### 11.2 정신병자(망상)
+    
+    - `fake.fakeRole`, `fake.fakeTeam`, `fake.fakeSide`를 채운다.
+    - `fake.fakeCooldowns`를 채운다.
+        - 마치 해당 용사 능력이 있는 것처럼 보이게
+    - `fake.fakeEffects`도 필요하다면 채운다(예: 무적 상태처럼 보이게 할지 여부는 다음 결정)
+    - 플레이어가 “가짜 능력 사용”을 시도하면:
+        - **서버는 실제 효과를 적용하지 않음**
+        - 대신 `LogItem(PERSONAL_SKILL_USED)`류로 “사용한 것처럼” 띄워줌.
+    
+    ### 11.3 약골(꾀병) fakeHp
+    
+    - `fake.fakeHp`는 본인에게도 그렇게 보이도록 동작
+    - 제안된 로직(추후 상세 결정 예정):
+        - 시작 시 fakeHp=3
+        - 2분마다 랜덤하게 `2, -1, +1, +0` 중 하나 적용
+    - 이 로직을 서버 상태에 반영하려면:
+        - “다음 fakeHp 변동 시각”이 필요함 (Effect로 넣는 것이 가장 깔끔)
+            - 예: `Effect(kind="fakeHpTick", expiresAtMs=nextTickAtMs, visibility="self")`
+        - 다만 지금 EffectKind 목록에는 없으니, **추후 추가** 항목으로 남겨둠
+    
+    ---
+    
+    ## 12. (참고) RoleKey 목록(예시)
+    
+    문서 일관성을 위해 RoleKey는 문자열 enum으로 관리 권장.
+    
+    ```tsx
+    type RoleKey =
+      | "mawang_fear"     // 공포의 마왕
+      | "mawang_troll"    // 분탕의 마왕
+      | "aide"            // 참모
+      | "fallen"          // 타락자
+      | "parryman"        // 패링맨
+      | "slayer"          // 슬레이어
+      | "sage"            // 현자
+      | "healer"          // 힐러
+      | "weakling"        // 약골
+      | "coward"          // 겁쟁이
+      | "madman"          // 정신병자
+      | "experiment_host" // 실험체
+      ;
+    
+    ```
+    
+    ---
+    
+    ## 13. DB 저장 관점(스냅샷)
+    
+    - `games.snapshot` 및 `game_snapshots.snapshot`은 위 `GameSnapshot`을 그대로 저장
+    - 30초마다 체크포인트 저장:
+        - `games.snapshot = snapshot`, `games.snapshot_version = snapshot.meta.snapshotVersion`
+        - `game_snapshots`에 INSERT

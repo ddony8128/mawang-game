@@ -1,0 +1,537 @@
+- REST API
+    
+    ## 0) 공통 규칙
+    
+    ### 0.1 Base / JSON
+    
+    - Base URL: `/api`
+    - Content-Type: `application/json`
+    
+    ### 0.2 인증/식별 헤더 규칙
+    
+    - **세션 토큰(필수인 API에서만)**
+        
+        `Authorization: Bearer <sessionToken>`
+        
+    - **클라이언트 식별(가능하면 항상)**
+        
+        `X-Device-Id: <deviceId>`
+        
+    - **방 내 플레이어 식별(방 관련 인증 API에서 필수)**
+        
+        `X-Room-Player-Id: <roomPlayerId>`
+        
+    
+    > 서버는 X-Room-Player-Id를 신뢰하지 않는다.
+    > 
+    > 
+    > 반드시 `sessionToken → roomPlayerId` 매핑이 일치하는지 검증하고, 불일치면 401/403.
+    > 
+    
+    ### 0.3 공통 응답 포맷
+    
+    성공:
+    
+    ```json
+    { "ok": true, "data": { } }
+    
+    ```
+    
+    실패:
+    
+    ```json
+    { "ok": false, "error": { "code": "STRING", "message": "..." } }
+    
+    ```
+    
+    ### 0.4 공통 에러 코드(권장)
+    
+    - `BAD_REQUEST`
+    - `AUTH_REQUIRED`
+    - `AUTH_INVALID`
+    - `FORBIDDEN`
+    - `NOT_FOUND`
+    - `CONFLICT`
+    - `RATE_LIMITED`
+    
+    ---
+    
+    ## 1) 게임 중 이탈/연결 끊김 정책(중요 규칙)
+    
+    - **게임 중 REST로 “leave”는 없다.**
+    - **방장도 leave가 없고, 방을 나갈 방법은 “방 삭제”뿐이다.**
+    - 게임 중 연결이 끊긴 플레이어는 즉시 죽이지 않는다.
+    - 서버는 주기적으로 `ping`을 보내며,
+        - `pong`이 **5분간** 오지 않으면 그 플레이어를:
+            - `hp = 0`
+            - `alive = false`
+                
+                로 처리한다.
+                
+                (이 처리는 게임 서버/WS 레이어에서 수행되며 REST API에는 별도 엔드포인트가 없다.)
+                
+    
+    ---
+    
+    ## 2) 인증/부팅
+    
+    ## 2.1 POST `/auth`
+    
+    목적:
+    
+    1. deviceId가 있으면 등록/검증
+    2. 없으면 deviceId 발급
+    3. 현재 특정 방/게임에 “재접속 가능한 상태인지” 알려주기 (UI에 재접속 버튼 노출)
+    
+    ### Request
+    
+    Headers:
+    
+    - (선택) `X-Device-Id`
+    
+    Body(선택):
+    
+    ```json
+    { "deviceId": "string | null" }
+    
+    ```
+    
+    우선순위: `X-Device-Id` > body.deviceId
+    
+    ### Response
+    
+    ```json
+    {
+      "ok": true,
+      "data": {
+        "deviceId": "string",
+        "reconnect": {
+          "available": true,
+          "roomId": "uuid",
+          "gameId": "uuid",
+          "roomTitle": "string",
+          "phase": "lobby | game",
+          "note": "string"
+        }
+      }
+    }
+    
+    ```
+    
+    - `reconnect.available=false`이면 나머지는 null 가능
+    - “재접속 버튼”은 UI에서만 제공
+        
+        실제 재접속은 **해당 방 `join` 후 WS `ready`** 흐름으로 처리(아래 참조)
+        
+    
+    ---
+    
+    ## 3) 방 목록/생성/입장
+    
+    ## 3.1 GET `/rooms`
+    
+    “입장하기” 화면의 방 리스트 조회
+    
+    ### Request
+    
+    Query(선택):
+    
+    - `limit` (기본 50)
+    - `cursor` (페이지네이션)
+    
+    ### Response
+    
+    ```json
+    {
+      "ok": true,
+      "data": {
+        "rooms": [
+          {
+            "roomId": "uuid",
+            "roomTitle": "string",
+            "isLocked": true,
+            "phase": "lobby | game",
+            "playerCount": 5,
+            "maxPlayers": 10
+          }
+        ],
+        "nextCursor": "string | null"
+      }
+    }
+    
+    ```
+    
+    ---
+    
+    ## 3.2 POST `/rooms`
+    
+    방 생성 (생성 시 방장 세션 발급)
+    
+    ### Request
+    
+    Headers:
+    
+    - `X-Device-Id` (권장)
+    
+    Body:
+    
+    ```json
+    {
+      "nickname": "string",
+      "roomTitle": "string",
+      "password": "string | null"
+    }
+    
+    ```
+    
+    검증:
+    
+    - nickname: 공백/길이 제한(권장: 2~12)
+    - roomTitle: 공백/길이 제한(권장: 2~20)
+    - password: null이면 잠금 없음
+    
+    ### Response
+    
+    ```json
+    {
+      "ok": true,
+      "data": {
+        "room": {
+          "roomId": "uuid",
+          "roomTitle": "string",
+          "isLocked": true,
+          "phase": "lobby",
+          "maxPlayers": 10
+        },
+        "session": {
+          "roomPlayerId": "uuid",
+          "sessionToken": "string",
+          "isHost": true
+        }
+      }
+    }
+    
+    ```
+    
+    ---
+    
+    ## 3.3 POST `/rooms/{roomId}/join`
+    
+    특정 방 입장 (정상 처리 시 **새 roomPlayerId + 새 sessionToken 발급**)
+    
+    ### Request
+    
+    Headers:
+    
+    - `X-Device-Id` (권장)
+    
+    Body:
+    
+    ```json
+    {
+      "nickname": "string",
+      "password": "string | null"
+    }
+    
+    ```
+    
+    검증(권장):
+    
+    - 방 존재
+    - 인원 6~10 게임 규칙이지만 로비는 1~10 허용
+    - `playerCount < maxPlayers`
+    - 비밀번호 일치(잠금방)
+    - **닉네임은 room 단위 유니크**
+    
+    ### Response
+    
+    ```json
+    {
+      "ok": true,
+      "data": {
+        "room": {
+          "roomId": "uuid",
+          "roomTitle": "string",
+          "isLocked": true,
+          "phase": "lobby | game",
+          "maxPlayers": 10
+        },
+        "session": {
+          "roomPlayerId": "uuid",
+          "sessionToken": "string",
+          "isHost": false
+        }
+      }
+    }
+    
+    ```
+    
+    에러 예시:
+    
+    - `NOT_FOUND`: roomId 없음
+    - `CONFLICT`: 정원 초과, 닉네임 중복, 비밀번호 불일치, 로비가 아닌데 입장 정책상 불가 등
+    
+    ---
+    
+    ## 4) 대기실 폴링/준비/시작/설정
+    
+    > 대기실은 WS 없이 폴링으로 충분하다는 전제.
+    > 
+    
+    ## 4.1 GET `/rooms/{roomId}/poll`
+    
+    대기실 화면을 위한 폴링 API
+    
+    “명단/방장/준비상태/전적/카운트다운/phase”를 내려준다.
+    
+    ### Request
+    
+    Headers:
+    
+    - `Authorization: Bearer <sessionToken>`
+    - `X-Room-Player-Id: <roomPlayerId>`
+    - `X-Device-Id: <deviceId>` (권장)
+    
+    Query(선택):
+    
+    - `sinceRevision=number`
+    
+    ### Response
+    
+    ```json
+    {
+      "ok": true,
+      "data": {
+        "room": {
+          "roomId": "uuid",
+          "roomTitle": "string",
+          "phase": "lobby | game",
+          "hostRoomPlayerId": "uuid"
+        },
+        "players": [
+          {
+            "roomPlayerId": "uuid",
+            "nickname": "string",
+            "isHost": true,
+            "isReady": false,
+            "wins": 1,
+            "losses": 2,
+            "isInRoom": true
+          }
+        ],
+        "countdown": {
+          "active": true,
+          "endsAtMs": 1730000000000
+        },
+        "revision": 42,
+        "unchanged": false
+      }
+    }
+    
+    ```
+    
+    - `sinceRevision`이 있고 변경이 없으면:
+        - `{ unchanged:true }`로 트래픽 절감 가능 (304를 써도 되지만 JSON이 단순)
+    
+    권한/검증:
+    
+    - 토큰/roomPlayerId 일치
+    - 해당 player가 room에 속해있음(`isInRoom=true`)
+    
+    ---
+    
+    ## 4.2 POST `/rooms/{roomId}/ready`
+    
+    준비/준비취소 (같은 API로 처리)
+    
+    ### Request
+    
+    Headers: auth + roomPlayerId
+    
+    Body:
+    
+    ```json
+    { "ready": true }
+    
+    ```
+    
+    또는
+    
+    ```json
+    { "ready": false }
+    
+    ```
+    
+    ### Response
+    
+    ```json
+    { "ok": true, "data": { "isReady": true } }
+    
+    ```
+    
+    제약:
+    
+    - `phase=lobby`에서만 허용
+    
+    ---
+    
+    ## 4.3 GET `/rooms/{roomId}/settings`
+    
+    방 settings 조회 (방장만)
+    
+    ### Request
+    
+    Headers: auth + roomPlayerId
+    
+    ### Response
+    
+    ```json
+    {
+      "ok": true,
+      "data": {
+        "settings": { "GameSettings": "..." }
+      }
+    }
+    
+    ```
+    
+    ---
+    
+    ## 4.4 PATCH `/rooms/{roomId}/settings`
+    
+    방 settings 수정 (방장만)
+    
+    ### Request
+    
+    Headers: auth + roomPlayerId
+    
+    Body:
+    
+    ```json
+    {
+      "settings": { "GameSettings": "..." }
+    }
+    
+    ```
+    
+    ### Response
+    
+    ```json
+    { "ok": true, "data": { "settings": { "GameSettings": "..." } } }
+    
+    ```
+    
+    제약:
+    
+    - `phase=lobby`에서만 허용
+    - 허용된 enum(2/3/4분 등) 외 값은 `BAD_REQUEST`
+    
+    ---
+    
+    ## 4.5 POST `/rooms/{roomId}/start`
+    
+    게임 시작 (방장만)
+    
+    ### Request
+    
+    Headers: auth + roomPlayerId
+    
+    Body(선택):
+    
+    ```json
+    { "countdownSec": 5 }
+    
+    ```
+    
+    ### Response
+    
+    ```json
+    {
+      "ok": true,
+      "data": {
+        "started": true,
+        "countdown": { "active": true, "endsAtMs": 1730000000000 },
+        "gameId": "uuid"
+      }
+    }
+    
+    ```
+    
+    검증:
+    
+    - `phase=lobby`
+    - 인원 6~10
+    - 방장 제외 전원 `isReady=true`
+    
+    서버 처리:
+    
+    - 카운트다운 시작(폴링으로 모두 확인)
+    - 0초 도달 시 `phase=game`, 게임 생성
+    - 게임 화면 진입 후에는 WS로 상태 동기화 (`ready` → `snapshot`)
+    
+    ---
+    
+    ## 5) 방 삭제 (방장만, leave 없음)
+    
+    ## 5.1 DELETE `/rooms/{roomId}`
+    
+    방 삭제 (방장만 / 대기실에서만)
+    
+    ### Request
+    
+    Headers:
+    
+    - `Authorization`
+    - `X-Room-Player-Id`
+    
+    ### Response
+    
+    ```json
+    { "ok": true, "data": { "deleted": true } }
+    
+    ```
+    
+    서버 처리(정책 고정):
+    
+    - 방을 즉시 삭제 처리
+    - 방에 속한 모든 플레이어의 `isInRoom=false`
+    - 대기실 폴링 중인 클라이언트는 다음 폴링에서 `NOT_FOUND` 또는 `error` 상태를 받게 됨
+    - 게임 중이었다면:
+        - REST로는 제어하지 않지만, 게임 서버는 해당 게임을 `aborted`로 처리하고
+        - WS에서는 `error(code=GAME_ABORTED, next=go_lobby)`로 일괄 종료시키는 것을 권장
+    
+    > 너 정책: “방장 삭제하면 다 메인 화면으로 쫓겨남”
+    > 
+    > 
+    > → 클라 구현: `poll`에서 `NOT_FOUND`/`FORBIDDEN`/`GAME_ABORTED`를 받으면 메인으로 이동.
+    > 
+    
+    ---
+    
+    ## 6) 클라이언트 동작 흐름(짧게)
+    
+    ### 앱 시작
+    
+    1. `POST /auth` (deviceId 있으면 헤더로)
+    2. `reconnect.available=true`면 재접속 버튼 노출
+    3. 메인에서 방 만들기/입장하기 진행
+    
+    ### 방 만들기
+    
+    1. `POST /rooms` → roomId + (roomPlayerId, sessionToken)
+    2. 대기실로 이동
+    3. 폴링: `GET /rooms/{roomId}/poll` (1~2초)
+    
+    ### 방 입장하기
+    
+    1. `GET /rooms`로 목록
+    2. `POST /rooms/{roomId}/join` → 세션 발급
+    3. 대기실 폴링
+    
+    ### 게임 시작
+    
+    1. 방장: `POST /rooms/{roomId}/start`
+    2. 카운트다운 끝나면 게임 화면으로 전환
+    3. WS 연결 후 `ready` 전송 → 서버 `snapshot` 수신
+    
+    ---
