@@ -23,7 +23,7 @@ export async function listRooms(params: ListRoomsParams) {
   let query = supabase
     .from("rooms")
     .select(
-      "id,title,is_locked,max_players,phase,updated_at,room_players!inner(id)",
+      "id,title,is_locked,max_players,phase,updated_at,room_players!inner(id,nickname,is_host)",
     )
     .in("phase", ["lobby", "game"])
     .order("updated_at", { ascending: false })
@@ -47,6 +47,10 @@ export async function listRooms(params: ListRoomsParams) {
     isLocked: row.is_locked as boolean,
     phase: (row.phase as RoomPhase) === "game" ? "game" : "lobby",
     playerCount: Array.isArray(row.room_players) ? row.room_players.length : 0,
+    hostNickname: Array.isArray(row.room_players)
+      ? (row.room_players.find((p: any) => p.is_host)?.nickname as string | null) ??
+        null
+      : null,
     maxPlayers: row.max_players as number,
   }));
 

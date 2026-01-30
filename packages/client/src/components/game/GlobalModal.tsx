@@ -3,6 +3,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useUIStore } from "@/stores/uiStore";
@@ -26,6 +27,9 @@ export function GlobalModal() {
           <DialogTitle className="text-base font-bold whitespace-pre-line">
             {currentModal.title}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            알림 또는 시스템 메시지를 표시하는 대화상자입니다.
+          </DialogDescription>
         </DialogHeader>
         <p className="mt-1 text-sm text-muted-foreground whitespace-pre-line">
           {currentModal.message}

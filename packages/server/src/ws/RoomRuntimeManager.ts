@@ -442,9 +442,18 @@ export class RoomRuntimeManager {
         let snapshot = room.getSnapshot();
         if (!snapshot) {
           snapshot = await createInitialSnapshotForRoom(roomId);
-          if (snapshot) {
-            room.setSnapshot(snapshot);
+          if (!snapshot) {
+            // running 게임 정보를 찾지 못하면 ready 를 거절하고 로비로 돌려보낸다.
+            this.sendError(socket, {
+              code: "GAME_NOT_FOUND",
+              message: "no running game found for this room",
+              recoverable: false,
+              next: "go_lobby",
+            });
+            socket.close();
+            return;
           }
+          room.setSnapshot(snapshot);
         }
 
         // 엔진 스냅샷이 있으면 viewer 기준 fogged snapshot 을 내려준다.

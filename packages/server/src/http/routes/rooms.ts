@@ -215,7 +215,7 @@ roomsRouter.get("/:roomId/poll", requireRoomAuth, async (req, res) => {
   try {
     const { data: room, error: roomError } = await supabase
       .from("rooms")
-      .select("id,title,phase,host_player_id")
+      .select("id,title,phase,host_player_id,settings")
       .eq("id", roomId)
       .single();
 
@@ -228,8 +228,16 @@ roomsRouter.get("/:roomId/poll", requireRoomAuth, async (req, res) => {
     const players = await listRoomPlayers(roomId);
 
     // v1: countdown / revision / unchanged 는 단순 값으로 응답
-    const countdown = null;
-    const revision = Date.now();
+    const nowMs = Date.now();
+    const settings = (room.settings as Record<string, any>) ?? {};
+    const endsAtMsRaw = settings.lobbyCountdownEndsAtMs;
+    let countdown: { active: boolean; endsAtMs: number } | null = null;
+    if (typeof endsAtMsRaw === "number") {
+      const endsAtMs = endsAtMsRaw;
+      const active = nowMs < endsAtMs;
+      countdown = { active, endsAtMs };
+    }
+    const revision = nowMs;
 
     sendOk(res, {
       room: {
@@ -415,17 +423,25 @@ roomsRouter.post("/:roomId/start", requireRoomAuth, requireHost, async (req, res
     // 게임 row 생성
     // - v1: seq 는 1부터 시작하는 단순 값으로 사용한다.
     //   (추후 여러 판을 지원할 때는 games 테이블에서 room_id 기준 max(seq)+1 을 계산하도록 확장 가능)
-    const settings = (room.settings as Record<string, any>) ?? {};
+    const currentSettings = (room.settings as Record<string, any>) ?? {};
     const gameRecord = await createGameForRoom({
       roomId,
-      settings,
+      settings: currentSettings,
     });
     const gameId = gameRecord.id;
 
     // 방 phase 를 game 으로 전환
+    const endsAtMs = Date.now() + countdownSec * 1000;
+
     const { error: updateRoomError } = await supabase
       .from("rooms")
-      .update({ phase: "game" })
+      .update({
+        phase: "game",
+        settings: {
+          ...currentSettings,
+          lobbyCountdownEndsAtMs: endsAtMs,
+        },
+      })
       .eq("id", roomId);
 
     if (updateRoomError) {

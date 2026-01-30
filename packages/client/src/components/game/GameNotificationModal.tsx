@@ -3,6 +3,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Bomb, Beer, Swords, Search, Skull, Heart } from "lucide-react";
@@ -66,6 +67,9 @@ export default function GameNotificationModal({
           <DialogTitle className="mt-2 text-center">
             {notification?.title}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            게임 내에서 발생한 이벤트를 알리는 대화상자입니다.
+          </DialogDescription>
         </DialogHeader>
         <p className="text-sm text-muted-foreground text-center">
           {notification?.message}

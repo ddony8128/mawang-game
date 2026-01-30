@@ -18,19 +18,17 @@ import type { RoomSummary } from "@/types/rest";
 
 export function RoomsPage() {
   const navigate = useNavigate();
-  const [rooms, setRooms] = useState<
-    (RoomSummary & { hostNickname?: string | null })[]
-  >([]);
+  const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedRoom, setSelectedRoom] =
-    useState<(RoomSummary & { hostNickname?: string | null }) | null>(null);
+  const [selectedRoom, setSelectedRoom] = useState<RoomSummary | null>(null);
   const [nickname, setNickname] = useState("");
   const [password, setPassword] = useState("");
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   const loadRooms = async () => {
     try {
       const res = await apiGetRooms();
-      setRooms(res.rooms.map((r) => ({ ...r, hostNickname: null })));
+      setRooms(res.rooms);
     } catch (err) {
       console.error("failed to load rooms", err);
     }
@@ -52,6 +50,7 @@ export function RoomsPage() {
     setSelectedRoom(room);
     setNickname("");
     setPassword("");
+    setJoinError(null);
   };
 
   const handleJoin = async () => {
@@ -59,6 +58,7 @@ export function RoomsPage() {
     if (selectedRoom.isLocked && !password.trim()) return;
 
     try {
+      setJoinError(null);
       const res = await apiJoinRoom({
         roomId: selectedRoom.roomId,
         nickname: nickname.trim(),
@@ -68,6 +68,7 @@ export function RoomsPage() {
       navigate(`/room/${res.room.roomId}/lobby`);
     } catch (err) {
       console.error("failed to join room", err);
+      setJoinError("입장에 실패했습니다. 비밀번호를 다시 확인해 주세요.");
     }
   };
 
@@ -207,19 +208,35 @@ export function RoomsPage() {
               <div className="space-y-2 animate-fade-in">
                 <Label
                   htmlFor="join-password"
-                  className="text-sm text-muted-foreground flex items-center gap-2"
+                  className="text-sm flex items-center gap-2"
                 >
                   <Lock className="w-4 h-4" />
-                  비밀번호
+                  <span
+                    className={
+                      joinError ? "text-destructive" : "text-muted-foreground"
+                    }
+                  >
+                    비밀번호
+                  </span>
                 </Label>
                 <Input
                   id="join-password"
                   type="password"
+                  autoComplete="current-password"
                   placeholder="비밀번호를 입력하세요"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="bg-muted/50 border-border/50 focus-visible:ring-primary"
+                  className={`bg-muted/50 focus-visible:ring-primary ${
+                    joinError
+                      ? "border-destructive/70 focus-visible:ring-destructive"
+                      : "border-border/50"
+                  }`}
                 />
+                {joinError && (
+                  <p className="text-[11px] text-destructive mt-1">
+                    {joinError}
+                  </p>
+                )}
               </div>
             )}
 

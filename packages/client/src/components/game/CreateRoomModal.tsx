@@ -89,6 +89,7 @@ export function CreateRoomModal({ open, onOpenChange }: CreateRoomModalProps) {
             <Input
               id="password"
               type="password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="비밀번호를 설정할 수 있어요"

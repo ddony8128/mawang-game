@@ -73,6 +73,7 @@ export function LobbyPage() {
   const [countdown, setCountdown] = useState<number | null>(null);
 
   const [players, setPlayers] = useState<RoomPlayerSummary[]>([]);
+  const [roomTitle, setRoomTitle] = useState<string>("마왕 잡으러 갈 사람!");
 
   const [settings, setSettings] = useState<RoomSettings>({
     cardDrawInterval: 3,
@@ -149,8 +150,15 @@ export function LobbyPage() {
 
       setIsHost(!!me?.isHost);
       setIsReady(!!me?.isReady);
-      // room title / phase는 추후 roomInfo 상태로 승격 가능
-      // 설정은 별도 GET /settings 로 동기화
+      setRoomTitle(data.room.roomTitle);
+      if (data.countdown) {
+        const endsAt = data.countdown.endsAtMs;
+        const remain = Math.max(
+          0,
+          Math.ceil((endsAt - Date.now()) / 1000),
+        );
+        setCountdown(data.countdown.active ? remain : 0);
+      }
     },
     [myRoomPlayerId],
   );
@@ -168,6 +176,20 @@ export function LobbyPage() {
         }
       } catch (err) {
         console.error("failed to poll room", err);
+        if (!cancelled && err instanceof ApiError) {
+          // 존재하지 않는 방이거나, 이 방에 대한 유효한 세션이 아닌 경우
+          if (
+            err.code === "NOT_FOUND" ||
+            err.code === "AUTH_REQUIRED" ||
+            err.code === "AUTH_FAILED" ||
+            err.code === "NOT_IN_ROOM" ||
+            err.code === "GAME_NOT_FOUND"
+          ) {
+            cancelled = true;
+            navigate("/rooms");
+            return;
+          }
+        }
       } finally {
         if (!cancelled) {
           setTimeout(tick, 2000);
@@ -179,7 +201,7 @@ export function LobbyPage() {
     return () => {
       cancelled = true;
     };
-  }, [roomId, syncFromPoll]);
+  }, [roomId, syncFromPoll, navigate]);
 
   return (
     <div className="min-h-screen bg-gradient-dark flex flex-col">
@@ -188,14 +210,15 @@ export function LobbyPage() {
         <div className="max-w-2xl mx-auto">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold truncate">{roomInfo.title}</h1>
-              {roomInfo.hasPassword && (
+              <h1 className="text-lg font-bold truncate">{roomTitle}</h1>
+              {/* 잠금 여부는 현재 poll 응답에 없으므로 아이콘은 숨김 */}
+              {false && (
                 <Lock className="w-4 h-4 text-accent" />
               )}
             </div>
             <div className="flex items-center gap-1 px-3 py-1 bg-muted rounded-full text-sm">
               <Users className="w-4 h-4" />
-              {players.length}/{roomInfo.maxPlayers}
+              {players.length}/10
             </div>
           </div>
 
@@ -661,8 +684,15 @@ export function LobbyPage() {
       {/* Countdown Modal */}
       <Dialog open={countdown !== null} onOpenChange={() => {}}>
         <DialogContent className="bg-card border-primary/50 max-w-xs">
-          <div className="text-center py-8">
-            <p className="text-muted-foreground mb-4">게임이 시작됩니다</p>
+          <DialogHeader>
+            <DialogTitle className="text-center text-lg font-bold">
+              게임이 시작됩니다
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              카운트다운이 끝나면 게임 화면으로 이동합니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="text-center py-6">
             <div className="text-6xl font-black text-gradient-evil animate-pulse">
               {countdown}
             </div>

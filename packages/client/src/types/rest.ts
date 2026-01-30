@@ -43,6 +43,7 @@ export type RoomSummary = {
   phase: "lobby" | "game";
   playerCount: number;
   maxPlayers: number;
+  hostNickname: string | null;
 };
 
 export type GetRoomsResponse = ApiResponse<{
