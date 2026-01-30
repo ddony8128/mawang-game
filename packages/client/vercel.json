@@ -1,5 +1,9 @@
 {
     "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://mawang-game.onrender.com/api/:path*"
+    },
       { "source": "/(.*)", "destination": "/" }
     ]
   }
