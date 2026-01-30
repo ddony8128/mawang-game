@@ -29,6 +29,7 @@ export type UiKnownInfo = {
   [playerId: string]: {
     team?: UiTeam;
     roleName?: string;
+    roleKey?: string;
   };
 };
 

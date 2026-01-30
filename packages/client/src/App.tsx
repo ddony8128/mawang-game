@@ -9,6 +9,7 @@ import { MainPage } from "./pages/MainPage";
 import { ResultPage } from "./pages/ResultPage";
 import { RoomsPage } from "./pages/RoomsPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { GlobalModal } from "./components/game/GlobalModal";
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
         <Route path="/room/:roomId/result" element={<ResultPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      <GlobalModal />
     </BrowserRouter>
   );
 }

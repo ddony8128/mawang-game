@@ -89,6 +89,7 @@ export function GamePage() {
     nickname: string;
     isDead: boolean;
     roleName: string;
+    roleKey?: string;
     team: UiTeam;
     isWinner: boolean;
   }[]>([]);
@@ -304,6 +305,7 @@ export function GamePage() {
       nickname: p.nickname,
       isDead: p.isDead,
       roleName: p.role?.name || "???",
+      roleKey: p.role?.id,
       team: (p.role?.team ?? "citizen") as UiTeam,
       isWinner:
         (p.role?.team === winningTeam ||
@@ -739,7 +741,7 @@ function mapFoggedToUi(state: FoggedGameState, roomId: string): UiGameState {
       for (const [targetId, roles] of Object.entries(
         state.me.know.byTarget,
       )) {
-        const entry: { team?: UiTeam; roleName?: string } = {};
+        const entry: { team?: UiTeam; roleName?: string; roleKey?: string } = {};
 
         const teamKnown = roles.find((r) => r.kind === "team");
         if (teamKnown) {
@@ -752,6 +754,7 @@ function mapFoggedToUi(state: FoggedGameState, roomId: string): UiGameState {
           if (name) {
             entry.roleName = name;
           }
+          entry.roleKey = roleKnown.role;
         }
 
         if (entry.team || entry.roleName) {

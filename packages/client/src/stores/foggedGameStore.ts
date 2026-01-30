@@ -7,6 +7,33 @@ import type {
 } from "../types/foggedGame";
 import { useUIStore } from "./uiStore";
 
+// ability images (실제 파일명 기준)
+import imgFearRevive from "@/assets/ability/공포의_재림.jpg";
+import imgTrollStubborn from "@/assets/ability/분탕의_집념.jpg";
+import imgSlayerUlt from "@/assets/ability/짱쎈_필살기.jpg";
+import imgCoward from "@/assets/ability/손떨림.png";
+import imgExperimentCurse from "@/assets/ability/저주의_숙주.jpg";
+import imgMawangMask from "@/assets/ability/가면놀이.png";
+import imgMawangFear from "@/assets/ability/겁주기.png";
+import imgTraitorBeer from "@/assets/ability/술자리_권유.jpg";
+import imgParryShield from "@/assets/ability/무적방패.png";
+import imgHealerHeal from "@/assets/ability/회복_마법.jpg";
+import imgFeared from "@/assets/ability/겁주기_당함.png";
+
+// card images
+import imgCardMagnifier from "@/assets/card/돋보기.png";
+import imgCardBeer from "@/assets/card/맥주.jpg";
+import imgCardKnife from "@/assets/card/칼.png";
+import imgCardKnifeHit from "@/assets/card/칼을_맞음.png";
+import imgCardBomb from "@/assets/card/폭탄.png";
+import imgCardBombPlanted from "@/assets/card/폭탄_설치_당함.jpg";
+import imgCardBombExploded from "@/assets/card/폭탄이_터짐.jpg";
+import imgCardTransfer from "@/assets/card/양도.jpg";
+
+// result / role images
+import imgDeath from "@/assets/result/사망.png";
+import imgRoleAideInfo from "@/assets/role/참모.png";
+
 export type FoggedGameStore = {
   state: FoggedGameState | null;
   applySnapshot: (snap: FoggedGameState) => void;
@@ -142,47 +169,56 @@ function buildModalTemplate(
       return {
         title: "공포의 재림",
         message: `${revivedName}이(가) 마왕으로 부활했습니다. 정체가 드러나고 전투가 계속됩니다.`,
+        imageUrl: imgFearRevive,
       };
     }
     case "GLOBAL_TROLL_STUBBORN_TRIGGERED":
       return {
         title: "분탕의 집념",
         message: "분탕의 마왕이 잠시 죽지 않는 집념 상태에 돌입했습니다.",
+        imageUrl: imgTrollStubborn,
       };
     case "GLOBAL_SLAYER_ULT_USED":
       return {
         title: "슬레이어의 필살기",
         message: "슬레이어가 필살기를 사용했습니다. 누군가 큰 피해를 입었습니다.",
+        imageUrl: imgSlayerUlt,
       };
     case "PERSONAL_DIED":
       return {
         title: "사망",
         message: "당신은 사망했습니다. 더 이상 행동할 수 없습니다.",
+        imageUrl: imgDeath,
       };
     case "PERSONAL_HIT_BY_KNIFE":
       return {
         title: "칼에 맞았습니다",
         message: "누군가의 공격으로 피해를 입었습니다.",
+        imageUrl: imgCardKnifeHit,
       };
     case "PERSONAL_BOMB_PLANTED_ON_ME":
       return {
         title: "폭탄 설치됨",
         message: "당신에게 폭탄이 설치되었습니다. 시한이 끝나면 큰 피해를 입습니다.",
+        imageUrl: imgCardBombPlanted,
       };
     case "PERSONAL_BOMB_EXPLODED_ON_ME":
       return {
         title: "폭탄 폭발",
         message: "당신에게 설치된 폭탄이 폭발했습니다.",
+        imageUrl: imgCardBombExploded,
       };
     case "PERSONAL_COWARD_CARD_FAILED":
       return {
         title: "손이 떨려요",
         message: "겁쟁이 특성 때문에 카드 사용에 실패했습니다.",
+        imageUrl: imgCoward,
       };
     case "EVIL_TEAM_EXPERIMENT_HOST_DIED_BONUS":
       return {
         title: "저주의 숙주",
         message: "실험체가 사망하여 악 팀 전원이 카드 2장을 얻었습니다.",
+        imageUrl: imgExperimentCurse,
       };
     case "PERSONAL_AIDE_HERO_LIST":
       {
@@ -199,33 +235,123 @@ function buildModalTemplate(
           return {
             title: "악의 하수인 정보",
             message: `마왕: ${mawangNickname}\n용사 역할: ${heroNames}`,
+            imageUrl: imgRoleAideInfo,
           };
         }
 
         return {
           title: "악의 하수인 정보",
           message: `마왕: ${mawangNickname}\n용사 구성 정보는 없습니다.`,
+          imageUrl: imgRoleAideInfo,
         };
       }
-    case "PERSONAL_SKILL_USED":
-      return {
-        title: "능력 사용",
-        message: "능력을 사용했습니다.",
-      };
-    case "PERSONAL_CARD_USED":
+    case "PERSONAL_SKILL_USED": {
+      const skillKey = typeof p.skillKey === "string" ? (p.skillKey as string) : "";
+      switch (skillKey) {
+        case "mawang_mask":
+          return {
+            title: "가면놀이",
+            message: "이번 게임 동안 돋보기에 보일 역할을 위장했습니다.",
+            imageUrl: imgMawangMask,
+          };
+        case "mawang_fear":
+          return {
+            title: "겁주기",
+            message: "대상 1명을 2분간 행동 불가 상태로 만들었습니다.",
+            imageUrl: imgMawangFear,
+          };
+        case "traitor_beer":
+          return {
+            title: "술자리 권유",
+            message: "대상 1명의 다음 카드 뽑기에서 확정적으로 맥주를 뽑게 했습니다.",
+            imageUrl: imgTraitorBeer,
+          };
+        case "parry_shield":
+          return {
+            title: "무적방패",
+            message: "지금부터 1분간 피해를 받지 않습니다.",
+            imageUrl: imgParryShield,
+          };
+        case "slayer_ult":
+          return {
+            title: "짱쎈 필살기",
+            message: "대상 1명에게 강력한 필살기를 사용했습니다.",
+            imageUrl: imgSlayerUlt,
+          };
+        case "healer_heal":
+          return {
+            title: "회복 마법",
+            message: "대상 1명의 생명력을 1 회복했습니다.",
+            imageUrl: imgHealerHeal,
+          };
+        default:
+          return {
+            title: "능력 사용",
+            message: "능력을 사용했습니다.",
+          };
+      }
+    }
+    case "PERSONAL_CARD_USED": {
+      const cardType = p.cardType as string | undefined;
+      if (cardType === "magnifier") {
+        const mode = p.mode as string | undefined;
+        const modeLabel =
+          mode === "magnifier3" ? "돋보기 3장" : "돋보기 2장";
+        return {
+          title: "돋보기 사용",
+          message: `${modeLabel}을 사용해 누군가의 정보를 확인했습니다.`,
+          imageUrl: imgCardMagnifier,
+        };
+      }
+      if (cardType === "beer") {
+        return {
+          title: "맥주 사용",
+          message: "맥주를 마셔 생명력을 1 회복했습니다.",
+          imageUrl: imgCardBeer,
+        };
+      }
+      if (cardType === "knife") {
+        return {
+          title: "칼 사용",
+          message: "칼로 다른 플레이어를 공격했습니다.",
+          imageUrl: imgCardKnife,
+        };
+      }
+      if (cardType === "bomb") {
+        return {
+          title: "폭탄 설치",
+          message: "다른 플레이어에게 폭탄을 설치했습니다.",
+          imageUrl: imgCardBomb,
+        };
+      }
       return {
         title: "카드 사용",
         message: "카드를 사용했습니다.",
       };
+    }
     case "PERSONAL_CARD_GIVEN":
       return {
         title: "카드 양도",
         message: "다른 플레이어에게 카드를 건넸습니다.",
+        imageUrl: imgCardTransfer,
       };
     case "PERSONAL_CARD_RECEIVED":
       return {
         title: "카드 수신",
         message: "다른 플레이어로부터 카드를 받았습니다.",
+        imageUrl: imgCardTransfer,
+      };
+    case "PERSONAL_HEALED":
+      return {
+        title: "회복 마법",
+        message: "누군가의 회복 마법으로 생명력이 회복되었습니다.",
+        imageUrl: imgHealerHeal,
+      };
+    case "PERSONAL_FEARED":
+      return {
+        title: "겁주기 당함",
+        message: "겁주기 효과에 걸려 일정 시간 동안 행동할 수 없습니다.",
+        imageUrl: imgFeared,
       };
     default:
       return {

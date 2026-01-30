@@ -8,11 +8,25 @@ import { Button } from "@/components/ui/button";
 import { Crown, Skull, Shield } from "lucide-react";
 import type { UiTeam } from "@/types/game-ui";
 
+import roleMawangFear from "@/assets/role/공포의_마왕.png";
+import roleMawangTroll from "@/assets/role/분탕의_마왕.png";
+import roleAide from "@/assets/role/참모.png";
+import roleFallen from "@/assets/role/타락자.png";
+import roleParryman from "@/assets/role/패링맨.png";
+import roleSlayer from "@/assets/role/슬레이어.png";
+import roleSage from "@/assets/role/현자.png";
+import roleHealer from "@/assets/role/힐러.png";
+import roleWeakling from "@/assets/role/약골.png";
+import roleCoward from "@/assets/role/겁쟁이.png";
+import roleMadman from "@/assets/role/정신병자.png";
+import roleExperiment from "@/assets/role/실험체.png";
+
 interface RevealPlayer {
   id: string;
   nickname: string;
   isDead: boolean;
   roleName: string;
+  roleKey?: string;
   team: UiTeam;
   isWinner: boolean;
 }
@@ -45,25 +59,32 @@ export default function PlayerRevealModal({
               }`}
             >
               <div className="flex items-center gap-2">
-                {renderTeamIcon(p.team)}
-                <div>
-                  <div className="flex items-center gap-1">
-                    <span className="font-semibold">{p.nickname}</span>
-                    {p.isDead && (
-                      <span className="text-[11px] text-destructive">
-                        (사망)
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {p.roleName} • {renderTeamText(p.team)}
+                {p.roleKey && ROLE_ICON_URL[p.roleKey] && (
+                  <img
+                    src={ROLE_ICON_URL[p.roleKey]}
+                    alt={p.roleName}
+                    className="w-8 h-8 rounded-md object-contain"
+                  />
+                )}
+                <div className="flex items-center gap-2">
+                  {renderTeamIcon(p.team)}
+                  <div>
+                    <div className="flex items-center gap-1">
+                      <span className="font-semibold">{p.nickname}</span>
+                      {p.isDead && (
+                        <span className="text-[11px] text-destructive">
+                          (사망)
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {p.roleName} • {renderTeamText(p.team)}
+                    </div>
                   </div>
                 </div>
               </div>
               {p.isWinner && (
-                <span className="text-xs text-good font-semibold">
-                  승리
-                </span>
+                <span className="text-xs text-good font-semibold">승리</span>
               )}
             </div>
           ))}
@@ -101,4 +122,20 @@ function renderTeamText(team: UiTeam) {
       return "시민";
   }
 }
+
+const ROLE_ICON_URL: Record<string, string> = {
+  mawang_fear: roleMawangFear,
+  mawang_troll: roleMawangTroll,
+  aide: roleAide,
+  fallen: roleFallen,
+  parryman: roleParryman,
+  slayer: roleSlayer,
+  sage: roleSage,
+  healer: roleHealer,
+  weakling: roleWeakling,
+  coward: roleCoward,
+  madman: roleMadman,
+  experiment_host: roleExperiment,
+};
+
 

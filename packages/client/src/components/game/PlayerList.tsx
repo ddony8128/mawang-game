@@ -1,6 +1,34 @@
 import { Bomb, Skull } from "lucide-react";
 import type { UiKnownInfo, UiPlayer } from "@/types/game-ui";
 
+import roleMawangFear from "@/assets/role/공포의_마왕.png";
+import roleMawangTroll from "@/assets/role/분탕의_마왕.png";
+import roleAide from "@/assets/role/참모.png";
+import roleFallen from "@/assets/role/타락자.png";
+import roleParryman from "@/assets/role/패링맨.png";
+import roleSlayer from "@/assets/role/슬레이어.png";
+import roleSage from "@/assets/role/현자.png";
+import roleHealer from "@/assets/role/힐러.png";
+import roleWeakling from "@/assets/role/약골.png";
+import roleCoward from "@/assets/role/겁쟁이.png";
+import roleMadman from "@/assets/role/정신병자.png";
+import roleExperiment from "@/assets/role/실험체.png";
+
+const ROLE_ICON_URL: Record<string, string> = {
+  mawang_fear: roleMawangFear,
+  mawang_troll: roleMawangTroll,
+  aide: roleAide,
+  fallen: roleFallen,
+  parryman: roleParryman,
+  slayer: roleSlayer,
+  sage: roleSage,
+  healer: roleHealer,
+  weakling: roleWeakling,
+  coward: roleCoward,
+  madman: roleMadman,
+  experiment_host: roleExperiment,
+};
+
 interface PlayerListProps {
   players: UiPlayer[];
   myPlayerId: string;
@@ -23,6 +51,9 @@ export default function PlayerList({
           const isMe = p.id === myPlayerId;
           const isSelected = p.id === selectedPlayerId;
           const info = knownInfo[p.id];
+          const knownRoleKey = info?.roleKey;
+          const selfRoleKey = isMe && p.role ? p.role.id : undefined;
+          const roleIconKey = knownRoleKey ?? selfRoleKey;
 
           const borderColor = isSelected
             ? "border-primary"
@@ -46,6 +77,13 @@ export default function PlayerList({
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex items-center gap-1">
+                    {roleIconKey && ROLE_ICON_URL[roleIconKey] && (
+                      <img
+                        src={ROLE_ICON_URL[roleIconKey]}
+                        alt=""
+                        className="w-4 h-4 rounded-sm object-contain mr-0.5"
+                      />
+                    )}
                     <span className="font-semibold text-sm truncate">
                       {p.nickname}
                       {isMe && (

@@ -838,6 +838,18 @@ class StubGameEngine {
             });
             const update = ensurePrivateUpdate(ctx.privateUpdates, actor.identity.playerId);
             update.logItems = [...(update.logItems ?? []), logItem];
+            // 회복된 대상에게도 별도 모달 제공
+            const healedLog = appendLogItem(this.state.log, {
+                atMs: now,
+                type: "PERSONAL_HEALED",
+                audience: { kind: "player", playerId: target.identity.playerId },
+                payload: {
+                    byPlayerId: actor.identity.playerId,
+                },
+                modal: true,
+            });
+            const targetUpdate = ensurePrivateUpdate(ctx.privateUpdates, target.identity.playerId);
+            targetUpdate.logItems = [...(targetUpdate.logItems ?? []), healedLog];
             return;
         }
         // 패링맨: 무적방패
@@ -921,6 +933,19 @@ class StubGameEngine {
             });
             const update = ensurePrivateUpdate(ctx.privateUpdates, actor.identity.playerId);
             update.logItems = [...(update.logItems ?? []), logItem];
+            // 겁주기를 당한 대상에게도 모달 제공
+            const fearedLog = appendLogItem(this.state.log, {
+                atMs: now,
+                type: "PERSONAL_FEARED",
+                audience: { kind: "player", playerId: target.identity.playerId },
+                payload: {
+                    byPlayerId: actor.identity.playerId,
+                    untilMs,
+                },
+                modal: true,
+            });
+            const targetUpdate = ensurePrivateUpdate(ctx.privateUpdates, target.identity.playerId);
+            targetUpdate.logItems = [...(targetUpdate.logItems ?? []), fearedLog];
             return;
         }
         // 분탕의 마왕: 가면놀이 (1회)
