@@ -4,6 +4,10 @@
       "source": "/api/:path*",
       "destination": "https://mawang-game.onrender.com/api/:path*"
     },
+    {
+      "source": "/ws",
+      "destination": "https://mawang-game.onrender.com/ws"
+    }
       { "source": "/(.*)", "destination": "/" }
     ]
   }
