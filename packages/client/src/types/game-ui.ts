@@ -27,7 +27,8 @@ export type UiPlayerStatus = {
 
 export type UiKnownInfo = {
   [playerId: string]: {
-    team: UiTeam;
+    team?: UiTeam;
+    roleName?: string;
   };
 };
 

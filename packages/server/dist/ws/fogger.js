@@ -9,14 +9,29 @@ function createFoggedState(snapshot, viewerId) {
     const nowMs = snapshot.timers.nowMs;
     const players = snapshot.seating.map((pid) => {
         const p = snapshot.players[pid];
+        // 약골의 HP 는 모두에게도 비정상적으로 보이도록 fakeHp 를 사용한다.
+        const publicHp = p.role === "weakling" && typeof p.fake.fakeHp === "number"
+            ? p.fake.fakeHp
+            : p.hp;
         return {
             playerId: p.identity.playerId,
             nickname: p.identity.nickname,
             alive: p.alive,
-            hp: p.hp,
+            hp: publicHp,
         };
     });
-    const visibleEffects = toVisibleEffects(me);
+    // 정신병자/약골/가면놀이 등 fake 표시 처리
+    const isMadman = me.role === "madman";
+    const displayRole = isMadman && me.fake.fakeRole ? me.fake.fakeRole : me.role;
+    const displayTeam = isMadman && me.fake.fakeTeam ? me.fake.fakeTeam : me.team;
+    const displaySide = isMadman && me.fake.fakeSide ? me.fake.fakeSide : me.side;
+    // 약골: 본인에게는 fakeHp 가 있으면 그 값을 보여준다.
+    const displayHp = me.role === "weakling" && typeof me.fake.fakeHp === "number"
+        ? me.fake.fakeHp
+        : me.hp;
+    // 정신병자: fakeCooldowns 가 있으면 그것을 표시용으로 사용
+    const displayCooldowns = isMadman && me.fake.fakeCooldowns ? me.fake.fakeCooldowns : me.cooldowns;
+    const visibleEffects = toVisibleEffects(me, viewerId);
     const foggedLog = filterLogForViewer(snapshot.log, viewerId);
     return {
         schemaVersion: 1,
@@ -32,14 +47,14 @@ function createFoggedState(snapshot, viewerId) {
         me: {
             playerId: me.identity.playerId,
             nickname: me.identity.nickname,
-            role: me.role,
-            team: me.team,
-            side: me.side,
+            role: displayRole,
+            team: displayTeam,
+            side: displaySide,
             alive: me.alive,
-            hp: me.hp,
+            hp: displayHp,
             hand: me.hand,
             effects: visibleEffects,
-            cooldowns: me.cooldowns,
+            cooldowns: displayCooldowns,
             know: {
                 byTarget: me.knowledge.knownByTarget,
             },
@@ -48,9 +63,13 @@ function createFoggedState(snapshot, viewerId) {
         log: foggedLog,
     };
 }
-function toVisibleEffects(player) {
+function toVisibleEffects(player, viewerId) {
     const effects = [];
     for (const e of player.effects) {
+        // self_hidden 효과는 대상 본인에게도 보이지 않는다.
+        if (e.visibility === "self_hidden" && player.identity.playerId === viewerId) {
+            continue;
+        }
         switch (e.kind) {
             case "bomb":
                 effects.push({

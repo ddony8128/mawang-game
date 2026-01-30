@@ -1,17 +1,12 @@
 import { Bomb, Skull } from "lucide-react";
-import type { UiPlayer } from "@/types/game-ui";
+import type { UiKnownInfo, UiPlayer } from "@/types/game-ui";
 
 interface PlayerListProps {
   players: UiPlayer[];
   myPlayerId: string;
   selectedPlayerId: string | null;
   onSelectPlayer: (playerId: string | null) => void;
-  knownInfo: Record<
-    string,
-    {
-      team: "good" | "evil" | "citizen";
-    }
-  >;
+  knownInfo: UiKnownInfo;
 }
 
 export default function PlayerList({
@@ -63,18 +58,25 @@ export default function PlayerList({
                       <Skull className="w-3 h-3 text-destructive shrink-0" />
                     )}
                   </div>
-                  <div className="flex items-center gap-1 mt-1 text-[11px] text-muted-foreground">
-                    <HpDots hp={p.hp} maxHp={p.maxHp} />
-                    {info && (
-                      <span
-                        className={
-                          info.team === "evil"
-                            ? "text-evil ml-1"
-                            : "text-good ml-1"
-                        }
-                      >
-                        {info.team === "evil" ? "악" : "선"} 확정
-                      </span>
+                  <div className="flex flex-col mt-1 gap-0.5 text-[11px] text-muted-foreground">
+                    <div className="flex items-center gap-1">
+                      <HpDots hp={p.hp} maxHp={p.maxHp} />
+                      {info?.team && (
+                        <span
+                          className={
+                            info.team === "evil"
+                              ? "text-evil ml-1"
+                              : "text-good ml-1"
+                          }
+                        >
+                          {info.team === "evil" ? "악" : "선"} 확정
+                        </span>
+                      )}
+                    </div>
+                    {info?.roleName && (
+                      <div className="text-[11px] text-foreground/80">
+                        역할: <span className="font-medium">{info.roleName}</span>
+                      </div>
                     )}
                   </div>
                 </div>

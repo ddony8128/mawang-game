@@ -510,9 +510,42 @@ function validateRoomSettings(
     return { ok: false, message: "invalid trollSurviveSec" };
   }
 
-  const traitor = teamCounts.traitor ?? 1;
-  const hero = teamCounts.hero ?? 3;
-  const civil = teamCounts.civil ?? 1;
+  const traitor =
+    typeof teamCounts.traitor === "number" && Number.isInteger(teamCounts.traitor)
+      ? (teamCounts.traitor as number)
+      : 1;
+  const hero =
+    typeof teamCounts.hero === "number" && Number.isInteger(teamCounts.hero)
+      ? (teamCounts.hero as number)
+      : 3;
+  const civil =
+    typeof teamCounts.civil === "number" && Number.isInteger(teamCounts.civil)
+      ? (teamCounts.civil as number)
+      : 1;
+
+  // GDD 기반 팀 구성 범위 검증
+  // - 배신자: 최대 2명
+  // - 용사: 최대 4명 (커스터마이즈 허용)
+  // - 시민: 최대 4명 (5명 이상은 허용하지 않음)
+  if (traitor < 0 || traitor > 2) {
+    return {
+      ok: false,
+      message: "invalid teamCounts: traitor must be between 0 and 2",
+    };
+  }
+  if (hero < 0 || hero > 4) {
+    return {
+      ok: false,
+      message: "invalid teamCounts: hero must be between 0 and 4",
+    };
+  }
+  if (civil < 0 || civil > 4) {
+    return {
+      ok: false,
+      message: "invalid teamCounts: civil must be between 0 and 4",
+    };
+  }
+
   const total = traitor + hero + civil;
   if (total < 3 || total > 10) {
     return { ok: false, message: "invalid teamCounts" };

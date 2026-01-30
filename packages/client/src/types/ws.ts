@@ -40,6 +40,8 @@ export type WsClientCardUseData = {
   cardType: "magnifier" | "knife" | "bomb" | "beer";
   targetPlayerId: string | null;
   useMode: "magnifier2" | "magnifier3" | "normal";
+  // magnifier2/3 에서 사용할 인스턴스 id 목록 (옵션)
+  cardInstanceIds?: string[];
   clientNowMs: number;
 };
 

@@ -35,6 +35,7 @@ import {
   apiPollRoom,
   apiReadyRoom,
   apiStartRoom,
+  ApiError,
 } from "@/api/rest";
 import type {
   RoomPlayerSummary,
@@ -51,6 +52,9 @@ interface RoomSettings {
   traitorCount: number;
   heroCount: number;
   citizenCount: number;
+  gmEnabled: boolean;
+  hostIsGM: boolean;
+   gmFixedRoles: Record<string, string>;
 }
 
 export function LobbyPage() {
@@ -64,6 +68,7 @@ export function LobbyPage() {
   const [isHost, setIsHost] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
 
@@ -78,6 +83,9 @@ export function LobbyPage() {
     traitorCount: 1,
     heroCount: 3,
     citizenCount: 1,
+    gmEnabled: false,
+    hostIsGM: false,
+    gmFixedRoles: {},
   });
 
   const roomInfo = {
@@ -142,6 +150,7 @@ export function LobbyPage() {
       setIsHost(!!me?.isHost);
       setIsReady(!!me?.isReady);
       // room title / phase는 추후 roomInfo 상태로 승격 가능
+      // 설정은 별도 GET /settings 로 동기화
     },
     [myRoomPlayerId],
   );
@@ -446,28 +455,164 @@ export function LobbyPage() {
                 ]}
               />
             </div>
+
+            {/* GM 모드 설정 */}
+            <div className="space-y-3">
+              <h4 className="font-semibold text-sm text-muted-foreground">
+                GM 모드
+              </h4>
+              <div className="flex items-center justify-between gap-4">
+                <Label className="text-sm">GM 모드 활성화</Label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSettings((s) => ({
+                      ...s,
+                      gmEnabled: !s.gmEnabled,
+                    }))
+                  }
+                  className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                    settings.gmEnabled
+                      ? "bg-primary/20 border-primary text-primary"
+                      : "bg-muted border-border text-muted-foreground"
+                  }`}
+                >
+                  {settings.gmEnabled ? "켜짐" : "꺼짐"}
+                </button>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <Label className="text-sm">방장이 GM</Label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSettings((s) => ({
+                      ...s,
+                      hostIsGM: !s.hostIsGM,
+                    }))
+                  }
+                  className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                    settings.hostIsGM
+                      ? "bg-primary/20 border-primary text-primary"
+                      : "bg-muted border-border text-muted-foreground"
+                  }`}
+                >
+                  {settings.hostIsGM ? "예" : "아니오"}
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                GM 모드가 활성화되면 아래에서 지정한 고정 역할이 우선 적용되고,
+                나머지 인원은 팀 구성 규칙에 따라 자동 배정됩니다.
+              </p>
+
+              {settings.gmEnabled && (
+                <div className="mt-3 space-y-2 border-t border-border/40 pt-3">
+                  <h5 className="text-xs font-semibold text-muted-foreground">
+                    플레이어별 고정 역할
+                  </h5>
+                  <p className="text-[11px] text-muted-foreground">
+                    각 플레이어에게 역할을 직접 지정할 수 있습니다.{" "}
+                    <span className="font-medium">자동 배치</span>로 두면 위 팀 구성에 따라 랜덤 배정됩니다.
+                  </p>
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {players.map((player) => {
+                      const current =
+                        settings.gmFixedRoles[player.roomPlayerId] ?? "auto";
+                      return (
+                        <div
+                          key={player.roomPlayerId}
+                          className="flex items-center justify-between gap-3 text-sm"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <span className="truncate block">
+                              {player.nickname}
+                              {player.isHost && (
+                                <span className="text-xs text-accent ml-1">
+                                  (방장)
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                          <Select
+                            value={current}
+                            onValueChange={(value) =>
+                              setSettings((s) => {
+                                const next = { ...s.gmFixedRoles };
+                                if (value === "auto") {
+                                  delete next[player.roomPlayerId];
+                                } else {
+                                  next[player.roomPlayerId] = value;
+                                }
+                                return { ...s, gmFixedRoles: next };
+                              })
+                            }
+                          >
+                            <SelectTrigger className="w-40 bg-muted/50">
+                              <SelectValue placeholder="자동 배치" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-popover border-border max-h-60 overflow-y-auto">
+                              <SelectItem value="auto">자동 배치</SelectItem>
+                              {GM_ROLE_OPTIONS.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           <DialogFooter className="mt-6">
             <Button variant="outline" onClick={() => setShowSettings(false)}>
               닫기
             </Button>
-            <Button
-              variant="gold"
-              onClick={async () => {
-                if (!roomId) return;
-                try {
-                  const apiSettings = toApiSettings(settings);
-                  const res = await apiPatchRoomSettings(roomId, apiSettings);
-                  setSettings(fromApiSettings(res.settings));
-                  setShowSettings(false);
-                } catch (err) {
-                  console.error("failed to save settings", err);
-                }
-              }}
-            >
-              저장
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end w-full">
+              {settingsError && (
+                <p className="flex-1 text-xs text-red-400 whitespace-pre-line">
+                  {settingsError}
+                </p>
+              )}
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setShowSettings(false)}>
+                  닫기
+                </Button>
+                <Button
+                  variant="gold"
+                  onClick={async () => {
+                    if (!roomId) return;
+                    try {
+                      setSettingsError(null);
+                      const apiSettings = toApiSettings(settings);
+                      const res = await apiPatchRoomSettings(roomId, apiSettings);
+                      setSettings(fromApiSettings(res.settings));
+                      setShowSettings(false);
+                    } catch (err) {
+                      console.error("failed to save settings", err);
+                      let message = "설정 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+                      if (err instanceof ApiError) {
+                        if (
+                          typeof err.message === "string" &&
+                          err.message.includes("teamCounts")
+                        ) {
+                          message =
+                            "팀 구성 설정이 게임 설계 범위를 벗어났습니다.\n배신자 / 용사 / 시민 수를 다시 확인해 주세요.";
+                        } else if (err.message) {
+                          message = err.message;
+                        }
+                      }
+                      setSettingsError(message);
+                    }
+                  }}
+                >
+                  저장
+                </Button>
+              </div>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -570,6 +715,9 @@ function fromApiSettings(api: ApiRoomSettings | undefined): RoomSettings {
       traitorCount: 1,
       heroCount: 3,
       citizenCount: 1,
+      gmEnabled: false,
+      hostIsGM: false,
+      gmFixedRoles: {},
     };
   }
   return {
@@ -581,6 +729,9 @@ function fromApiSettings(api: ApiRoomSettings | undefined): RoomSettings {
     traitorCount: api.teamCounts?.traitor ?? 1,
     heroCount: api.teamCounts?.hero ?? 3,
     citizenCount: api.teamCounts?.civil ?? 1,
+    gmEnabled: api.gmMode?.enabled ?? false,
+    hostIsGM: api.gmMode?.hostIsGM ?? false,
+    gmFixedRoles: api.gmMode?.fixedRoles ?? {},
   };
 }
 
@@ -597,10 +748,25 @@ function toApiSettings(ui: RoomSettings): ApiRoomSettings {
       civil: ui.citizenCount,
     },
     gmMode: {
-      enabled: false,
-      hostIsGM: false,
-      fixedRoles: {},
+      enabled: ui.gmEnabled,
+      hostIsGM: ui.hostIsGM,
+      fixedRoles: ui.gmFixedRoles,
     },
   };
 }
+
+const GM_ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "mawang_fear", label: "공포의 마왕" },
+  { value: "mawang_troll", label: "분탕의 마왕" },
+  { value: "aide", label: "참모" },
+  { value: "fallen", label: "타락자" },
+  { value: "parryman", label: "패링맨" },
+  { value: "slayer", label: "슬레이어" },
+  { value: "sage", label: "현자" },
+  { value: "healer", label: "힐러" },
+  { value: "weakling", label: "약골" },
+  { value: "coward", label: "겁쟁이" },
+  { value: "madman", label: "정신병자" },
+  { value: "experiment_host", label: "실험체" },
+];
 

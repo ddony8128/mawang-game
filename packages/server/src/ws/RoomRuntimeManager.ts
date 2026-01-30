@@ -1,10 +1,13 @@
 import type { WebSocket } from "ws";
 
-import type { EngineOutput, GameEngine } from "../engine/types";
+import type { EngineOutput, GameEngine, TimerRegistry } from "../engine/types";
 import { createStubGameEngine } from "../engine/stubEngine";
+import { createTimerRegistry } from "../engine/timerRegistry";
 import { AuthError, verifyRoomSession } from "../auth/authService";
 import type { GameSnapshot } from "../types/serverState";
 import { createFoggedState } from "./fogger";
+import { saveSnapshot, recordGameEnd } from "../db/gameSnapshotsRepo";
+import { createInitialSnapshotForRoom } from "../engine/initializer";
 
 // 간단한 연결 상태
 export type ConnectionState = {
@@ -22,12 +25,31 @@ export type ConnectionState = {
 export class RoomRuntime {
   readonly roomId: string;
   private readonly engine: GameEngine;
+  private readonly timerRegistry: TimerRegistry;
   private readonly connections = new Map<string, ConnectionState>();
   private snapshot: GameSnapshot | null = null;
+  private readonly snapshotIntervalId: ReturnType<typeof setInterval>;
 
   constructor(roomId: string, engine?: GameEngine) {
     this.roomId = roomId;
-    this.engine = engine ?? createStubGameEngine();
+    const timerRegistry = createTimerRegistry((task) => {
+      this.engine.enqueue(task);
+    });
+    this.timerRegistry = timerRegistry;
+    this.engine = engine ?? createStubGameEngine(timerRegistry);
+
+    // 60초마다 현재 스냅샷을 DB에 저장
+    this.snapshotIntervalId = setInterval(() => {
+      if (!this.snapshot) return;
+      const gameId = this.snapshot.ids.gameId;
+      void saveSnapshot({
+        gameId,
+        snapshot: this.snapshot,
+      }).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[RoomRuntime] failed to save snapshot:", err);
+      });
+    }, 60_000);
   }
 
   attachConnection(state: ConnectionState) {
@@ -48,6 +70,22 @@ export class RoomRuntime {
     // 엔진에도 최신 상태를 주입한다(엔진이 지원하는 경우).
     if ("setState" in this.engine && typeof (this.engine as any).setState === "function") {
       (this.engine as any).setState(snapshot);
+    }
+
+    // 다음 공통 드로우 타이머를 등록한다.
+    if (snapshot.timers.nextDrawAtMs) {
+      this.timerRegistry.scheduleAt(snapshot.timers.nextDrawAtMs, "CARD_DRAW", {
+        roomId: this.roomId,
+      });
+    }
+
+    // 약골(weakling) 플레이어들의 표시 HP 출렁임을 위한 타이머를 등록한다.
+    for (const player of Object.values(snapshot.players)) {
+      if (player.role === "weakling") {
+        this.timerRegistry.scheduleIn(120_000, "WEAKLING_FAKE_HP_TICK", {
+          playerId: player.identity.playerId,
+        });
+      }
     }
   }
 
@@ -96,6 +134,16 @@ export class RoomRuntime {
       return;
     }
 
+    // 컨텍스트 검증 통과 → accepted ack 전송
+    this.sendJson(conn.socket, {
+      type: "ack",
+      payload: {
+        actionId,
+        accepted: true,
+        applied: false,
+      },
+    });
+
     // EngineTask 로 변환해 enqueue
     this.engine.enqueue({
       kind: "PLAYER_ACTION",
@@ -123,11 +171,15 @@ export class RoomRuntime {
   // EngineOutput 을 WS 메시지로 변환
   private flushEngineOutputs() {
     // 하나 이상 처리될 수 있으므로 루프
-    // StubGameEngine 은 현재 delta/endState/dbEvents 를 채우지 않는다.
-    // 이후 실제 구현에서 확장한다.
     let out: EngineOutput | null;
     // eslint-disable-next-line no-cond-assign
     while ((out = this.engine.processLoop())) {
+      if (!this.snapshot) {
+        continue;
+      }
+
+      const snapshot = this.snapshot;
+
       if (out.appliedAcks) {
         for (const ack of out.appliedAcks) {
           this.sendAck(ack.playerId, ack.actionId);
@@ -143,44 +195,104 @@ export class RoomRuntime {
         }
       }
 
-      // delta 를 FoggedGameState patch 로 변환해 patch 이벤트로 broadcast
-      if (out.delta && this.snapshot) {
-        // v1: public.players 만을 사용해 부분 players 업데이트만 보낸다.
-        if (out.delta.public?.players && out.delta.public.players.length > 0) {
-          const playersPatch = out.delta.public.players.map((p) => ({
-            playerId: p.playerId,
-            alive: p.alive,
-            hp: p.hp,
-          }));
+      // delta 를 FoggedGameState patch 로 변환해 patch 이벤트로 per-player 로 전송
+      if (out.delta) {
+        const baseSnapshotVersion = snapshot.meta.snapshotVersion;
 
-          for (const state of this.connections.values()) {
-            this.sendJson(state.socket, {
-              type: "patch",
-              payload: {
-                baseSnapshotVersion: this.snapshot.meta.snapshotVersion,
-                nextSnapshotVersion: this.snapshot.meta.snapshotVersion + 1,
-                patch: {
-                  players: playersPatch,
-                },
-                logItems: [],
-              },
-            });
-          }
-
-          // 서버 스냅샷도 일관되게 업데이트
+        // 1) 서버 스냅샷에 delta 반영
+        if (out.delta.public?.players) {
           for (const p of out.delta.public.players) {
-            const ps = this.snapshot.players[p.playerId];
+            const ps = snapshot.players[p.playerId];
             if (ps) {
               ps.hp = p.hp;
               ps.alive = p.alive;
             }
           }
-          this.snapshot.meta.snapshotVersion += 1;
+        }
+        if (typeof out.delta.public?.nextDrawAtMs === "number") {
+          snapshot.timers.nextDrawAtMs = out.delta.public.nextDrawAtMs;
+        }
+
+        // privateByPlayer.hand / know / stateChanged / logItems 등도
+        // 필요 시 여기서 snapshot 에 반영할 수 있지만,
+        // 현재 StubGameEngine 은 stateChanged 플래그만 사용하므로
+        // 스냅샷은 엔진이 직접 변경한 상태를 그대로 사용한다.
+
+        // snapshotVersion 증가
+        snapshot.meta.snapshotVersion += 1;
+        const nextSnapshotVersion = snapshot.meta.snapshotVersion;
+
+        // 2) 각 viewer 기준 FoggedGameState patch 생성 및 전송
+        const publicPlayersPatch =
+          out.delta.public?.players?.map((p) => ({
+            playerId: p.playerId,
+            alive: p.alive,
+            hp: p.hp,
+          })) ?? [];
+
+        const privateByPlayer = out.delta.privateByPlayer ?? {};
+
+        for (const state of this.connections.values()) {
+          const viewerId = state.roomPlayerId;
+          const priv = privateByPlayer[viewerId];
+
+          const patch: any = {};
+
+          if (publicPlayersPatch.length > 0) {
+            patch.players = publicPlayersPatch;
+          }
+
+          // nextDrawAtMs / nowMs / state 등 메타 정보는 공통
+          patch.meta = {
+            state: snapshot.meta.state,
+            nowMs: snapshot.timers.nowMs,
+          };
+          patch.timers = {
+            nextDrawAtMs: snapshot.timers.nextDrawAtMs,
+          };
+
+          let logItems: any[] = [];
+
+          if (priv) {
+            // stateChanged 가 true 이면 전체 me subtree 를 새로 계산해 replace
+            if (priv.stateChanged) {
+              const fogged = createFoggedState(snapshot, viewerId);
+              patch.me = fogged.me;
+            }
+
+            if (priv.logItems && priv.logItems.length > 0) {
+              // Engine 의 LogItem 을 FoggedLogItem 으로 얕게 매핑
+              logItems = priv.logItems.map((item) => ({
+                id: item.id,
+                seq: item.seq,
+                atMs: item.atMs,
+                type: item.type,
+                payload: item.payload,
+                modal: item.modal,
+              }));
+            }
+          }
+
+          this.sendJson(state.socket, {
+            type: "patch",
+            payload: {
+              baseSnapshotVersion,
+              nextSnapshotVersion,
+              patch,
+              logItems,
+            },
+          });
         }
       }
 
       // endState 가 있으면 end 이벤트 전송 및 RoomRuntime 정리 (v1: WS 송신까지만 구현)
       if (out.endState) {
+        // 종료 상태를 DB 에 기록
+        void recordGameEnd(out.endState).catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error("[RoomRuntime] failed to record game end:", err);
+        });
+
         for (const state of this.connections.values()) {
           this.sendJson(state.socket, {
             type: "end",
@@ -207,6 +319,39 @@ export class RoomRuntime {
       socket.send(JSON.stringify(msg));
     } catch {
       // ignore
+    }
+  }
+
+  // ping 전송 및 타임아웃 강제 사망 처리
+  sendPingAndCheckTimeout(nowMs: number) {
+    for (const state of this.connections.values()) {
+      // ping 전송
+      this.sendJson(state.socket, {
+        type: "ping",
+        payload: {
+          pingId: `${state.roomPlayerId}-${nowMs}`,
+          serverTs: nowMs,
+        },
+      });
+
+      state.missCount += 1;
+      if (state.missCount >= 10) {
+        // 5분 동안 pong 이 없으면 타임아웃 사망 처리
+        this.engine.enqueue({
+          kind: "SYSTEM_TASK",
+          atMs: nowMs,
+          type: "FORCE_DEAD_BY_TIMEOUT",
+          playerId: state.roomPlayerId,
+        } as any);
+        this.flushEngineOutputs();
+
+        try {
+          state.socket.close();
+        } catch {
+          // ignore
+        }
+        this.connections.delete(state.roomPlayerId);
+      }
     }
   }
 
@@ -248,6 +393,18 @@ export class RoomRuntime {
 
 export class RoomRuntimeManager {
   private readonly rooms = new Map<string, RoomRuntime>();
+  private readonly pingIntervalId: ReturnType<typeof setInterval>;
+
+  constructor() {
+    // 30초마다 ping 을 보내고 pong 미수신 시 missCount 를 증가시킨다.
+    this.pingIntervalId = setInterval(() => {
+      const now = Date.now();
+      for (const room of this.rooms.values()) {
+        room["sendPingAndCheckTimeout" as keyof RoomRuntime] &&
+          (room as any).sendPingAndCheckTimeout(now);
+      }
+    }, 30_000);
+  }
 
   private getOrCreateRoom(roomId: string): RoomRuntime {
     let room = this.rooms.get(roomId);
@@ -281,8 +438,16 @@ export class RoomRuntimeManager {
           lastPongAtMs: Date.now(),
         });
 
+        // 스냅샷이 없으면 초기 스냅샷을 생성한다.
+        let snapshot = room.getSnapshot();
+        if (!snapshot) {
+          snapshot = await createInitialSnapshotForRoom(roomId);
+          if (snapshot) {
+            room.setSnapshot(snapshot);
+          }
+        }
+
         // 엔진 스냅샷이 있으면 viewer 기준 fogged snapshot 을 내려준다.
-        const snapshot = room.getSnapshot();
         if (snapshot) {
           const fogged = createFoggedState(snapshot, verified.roomPlayerId);
           const msgReady = {
@@ -347,6 +512,27 @@ export class RoomRuntimeManager {
         });
         return;
       }
+
+       const snapshot = room.getSnapshot();
+       const actorPlayerId: string | undefined = payload.actorPlayerId;
+       if (!snapshot || snapshot.meta.state !== "running") {
+         this.sendError(socket, {
+           code: "GAME_NOT_RUNNING",
+           message: "game is not running",
+           recoverable: false,
+           next: "go_lobby",
+         });
+         return;
+       }
+       if (!actorPlayerId || !snapshot.players[actorPlayerId]) {
+         this.sendError(socket, {
+           code: "NOT_IN_GAME",
+           message: "player not in game snapshot",
+           recoverable: false,
+           next: "go_lobby",
+         });
+         return;
+       }
 
       room.handleAction(socket, payload);
       return;

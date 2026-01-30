@@ -5,6 +5,7 @@ import type {
 } from "@/types/ws";
 import { useClientStore } from "@/stores/clientStore";
 import { useFoggedGameStore } from "@/stores/foggedGameStore";
+import { useUIStore } from "@/stores/uiStore";
 
 type WsConnectionState = "idle" | "connecting" | "connected" | "closed";
 
@@ -24,6 +25,10 @@ class WsClientImpl {
   private clientVersion?: string;
   private onError?: WsClientOptions["onError"];
   private onEnd?: WsClientOptions["onEnd"];
+  private pendingActions = new Map<
+    string,
+    { payload: WsClientActionPayload; retries: number; timeoutId: number }
+  >();
 
   connect(opts: WsClientOptions) {
     if (this.state === "connected" || this.state === "connecting") return;
@@ -102,6 +107,39 @@ class WsClientImpl {
     } catch {
       // ignore
     }
+
+    // 3초 동안 accepted ack 가 오지 않으면 재전송
+    const actionId = payload.actionId;
+    const existing = this.pendingActions.get(actionId);
+    if (existing) return;
+
+    const timeoutId = window.setTimeout(() => {
+      const current = this.pendingActions.get(actionId);
+      if (!current) return;
+      if (!this.socket || this.state !== "connected") {
+        this.pendingActions.delete(actionId);
+        return;
+      }
+      if (current.retries >= 1) {
+        this.pendingActions.delete(actionId);
+        return;
+      }
+      try {
+        this.socket.send(JSON.stringify({ type: "action", payload: current.payload }));
+      } catch {
+        // ignore
+      }
+      const newTimeoutId = window.setTimeout(() => {
+        this.pendingActions.delete(actionId);
+      }, 3000);
+      this.pendingActions.set(actionId, {
+        payload: current.payload,
+        retries: current.retries + 1,
+        timeoutId: newTimeoutId,
+      });
+    }, 3000);
+
+    this.pendingActions.set(actionId, { payload, retries: 0, timeoutId });
   }
 
   private sendReady() {
@@ -177,12 +215,31 @@ class WsClientImpl {
         break;
       }
       case "ack": {
-        // v1: 별도 처리 없이도 충분하지만,
-        // 필요하면 향후 액션 버튼 비활성화 해제 등에 사용할 수 있다.
+        // accepted/applied ack 수신 시 pending 액션 정리
+        const { actionId } = msg.payload;
+        const pending = this.pendingActions.get(actionId);
+        if (pending) {
+          window.clearTimeout(pending.timeoutId);
+          this.pendingActions.delete(actionId);
+        }
         break;
       }
       case "invalid_action": {
-        // TODO: 필요 시 토스트/모달로 노출
+        // invalid_action 은 모달로 노출
+        const uiStore = useUIStore.getState();
+        const p = msg.payload;
+        uiStore.pushModal({
+          id: `invalid_${p.actionId}_${Date.now()}`,
+          title: "행동이 거절되었습니다",
+          message: p.message,
+          createdAtMs: Date.now(),
+        });
+
+        const pending = this.pendingActions.get(p.actionId);
+        if (pending) {
+          window.clearTimeout(pending.timeoutId);
+          this.pendingActions.delete(p.actionId);
+        }
         break;
       }
       case "error": {

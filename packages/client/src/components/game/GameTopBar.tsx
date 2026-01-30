@@ -1,12 +1,17 @@
-import { Heart, Timer, Shield } from "lucide-react";
+import { Heart, Timer, Shield, Bomb, AlertTriangle, Circle } from "lucide-react";
 import type { UiPlayer } from "@/types/game-ui";
 
 interface GameTopBarProps {
   player: UiPlayer;
   nextCardDrawInSeconds: number;
+  connectionStatus?: "connecting" | "connected" | "reconnecting" | "error";
 }
 
-function GameTopBar({ player, nextCardDrawInSeconds }: GameTopBarProps) {
+function GameTopBar({
+  player,
+  nextCardDrawInSeconds,
+  connectionStatus = "connected",
+}: GameTopBarProps) {
   const minutes = Math.floor(nextCardDrawInSeconds / 60);
   const seconds = nextCardDrawInSeconds % 60;
 
@@ -37,12 +42,33 @@ function GameTopBar({ player, nextCardDrawInSeconds }: GameTopBarProps) {
               />
             ))}
           </div>
-          {player.status.isInvincible && (
-            <div className="flex items-center gap-1 text-xs text-hero bg-hero/10 border border-hero/40 rounded-full px-2 py-0.5">
-              <Shield className="w-3 h-3" />
-              무적
-            </div>
-          )}
+          <div className="flex items-center gap-1">
+            {player.status.isInvincible && (
+              <div className="flex items-center gap-1 text-xs text-hero bg-hero/10 border border-hero/40 rounded-full px-2 py-0.5">
+                <Shield className="w-3 h-3" />
+                무적
+              </div>
+            )}
+            {player.status.isIntimidated && (
+              <div className="flex items-center gap-1 text-xs text-destructive bg-destructive/10 border border-destructive/40 rounded-full px-2 py-0.5">
+                <AlertTriangle className="w-3 h-3" />
+                겁주기
+              </div>
+            )}
+            {player.status.hasBomb && (
+              <div className="flex items-center gap-1 text-xs text-amber-500 bg-amber-500/10 border border-amber-500/40 rounded-full px-2 py-0.5">
+                <Bomb className="w-3 h-3" />
+                <span>
+                  폭탄{" "}
+                  {player.status.hasBomb.remainingSeconds > 0
+                    ? `${Math.ceil(
+                        player.status.hasBomb.remainingSeconds / 60,
+                      )}분 후`
+                    : "곧 폭발"}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2 text-xs">
@@ -51,6 +77,26 @@ function GameTopBar({ player, nextCardDrawInSeconds }: GameTopBarProps) {
             <span>다음 카드까지</span>
             <span className="font-mono">
               {minutes}:{seconds.toString().padStart(2, "0")}
+            </span>
+          </div>
+          <div className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-full bg-muted text-muted-foreground border border-border/60">
+            <Circle
+              className={`w-3 h-3 ${
+                connectionStatus === "connected"
+                  ? "text-emerald-500"
+                  : connectionStatus === "reconnecting"
+                    ? "text-amber-500"
+                    : connectionStatus === "connecting"
+                      ? "text-sky-400"
+                      : "text-destructive"
+              }`}
+              fill="currentColor"
+            />
+            <span className="text-[11px]">
+              {connectionStatus === "connected" && "연결됨"}
+              {connectionStatus === "connecting" && "연결 중"}
+              {connectionStatus === "reconnecting" && "재연결 중"}
+              {connectionStatus === "error" && "연결 오류"}
             </span>
           </div>
         </div>
