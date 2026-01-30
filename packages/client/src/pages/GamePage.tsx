@@ -380,7 +380,7 @@ export function GamePage() {
 
   const handlePlayerRevealConfirm = () => {
     setShowPlayerReveal(false);
-    navigate(`/room/${roomId}/lobby`);
+    navigate(`/room/${roomId}/result`);
   };
 
   const handleUseAbility = (abilityId: string) => {

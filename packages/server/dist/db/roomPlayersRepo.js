@@ -10,8 +10,11 @@ async function listRoomPlayers(roomId) {
         .eq("room_id", roomId)
         .eq("is_in_room", true)
         .order("created_at", { ascending: true });
-    if (error)
+    if (error) {
+        // eslint-disable-next-line no-console
+        console.error("[supabase][listRoomPlayers] error:", error);
         throw error;
+    }
     return (data ?? []);
 }
 async function updateReadyState(roomPlayerId, ready) {
@@ -21,7 +24,10 @@ async function updateReadyState(roomPlayerId, ready) {
         .eq("id", roomPlayerId)
         .select("id,is_ready")
         .single();
-    if (error)
+    if (error) {
+        // eslint-disable-next-line no-console
+        console.error("[supabase][updateReadyState] error:", error);
         throw error;
+    }
     return data;
 }

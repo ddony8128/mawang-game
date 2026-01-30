@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, RefreshCw, Lock, Users, User } from "lucide-react";
 
@@ -11,92 +11,69 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
-
-interface Room {
-  id: string;
-  title: string;
-  hasPassword: boolean;
-  currentPlayers: number;
-  maxPlayers: number;
-  host: string;
-}
-
-// Mock data for demonstration
-const mockRooms: Room[] = [
-  {
-    id: "abc123",
-    title: "마왕 잡으러 갈 사람!",
-    hasPassword: false,
-    currentPlayers: 4,
-    maxPlayers: 10,
-    host: "용사1",
-  },
-  {
-    id: "def456",
-    title: "초보만 환영",
-    hasPassword: true,
-    currentPlayers: 6,
-    maxPlayers: 8,
-    host: "뉴비왕",
-  },
-  {
-    id: "ghi789",
-    title: "고수들의 방",
-    hasPassword: false,
-    currentPlayers: 8,
-    maxPlayers: 8,
-    host: "프로게이머",
-  },
-  {
-    id: "jkl012",
-    title: "재밌게 해요~",
-    hasPassword: false,
-    currentPlayers: 3,
-    maxPlayers: 10,
-    host: "즐겜러",
-  },
-];
+import { apiGetRooms, apiJoinRoom } from "@/api/rest";
+import type { RoomSummary } from "@/types/rest";
 
 export function RoomsPage() {
   const navigate = useNavigate();
-  const [rooms, setRooms] = useState<Room[]>(mockRooms);
+  const [rooms, setRooms] = useState<
+    (RoomSummary & { hostNickname?: string | null })[]
+  >([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
+  const [selectedRoom, setSelectedRoom] =
+    useState<(RoomSummary & { hostNickname?: string | null }) | null>(null);
   const [nickname, setNickname] = useState("");
   const [password, setPassword] = useState("");
 
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    setTimeout(() => {
-      // TODO: 실제 REST /api/rooms 연동
-      setRooms([...mockRooms]);
-      setIsRefreshing(false);
-    }, 500);
+  const loadRooms = async () => {
+    try {
+      const res = await apiGetRooms();
+      setRooms(res.rooms.map((r) => ({ ...r, hostNickname: null })));
+    } catch (err) {
+      console.error("failed to load rooms", err);
+    }
   };
 
-  const handleRoomClick = (room: Room) => {
-    if (room.currentPlayers >= room.maxPlayers) return;
+  useEffect(() => {
+    void loadRooms();
+  }, []);
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    void loadRooms().finally(() => setIsRefreshing(false));
+  };
+
+  const handleRoomClick = (
+    room: RoomSummary & { hostNickname?: string | null },
+  ) => {
+    if (room.playerCount >= room.maxPlayers) return;
     setSelectedRoom(room);
     setNickname("");
     setPassword("");
   };
 
-  const handleJoin = () => {
+  const handleJoin = async () => {
     if (!selectedRoom || !nickname.trim()) return;
-    if (selectedRoom.hasPassword && !password.trim()) return;
+    if (selectedRoom.isLocked && !password.trim()) return;
 
-    localStorage.setItem(
-      "mawang_player",
-      JSON.stringify({ nickname: nickname.trim() })
-    );
-    setSelectedRoom(null);
-    navigate(`/room/${selectedRoom.id}/lobby`);
+    try {
+      const res = await apiJoinRoom({
+        roomId: selectedRoom.roomId,
+        nickname: nickname.trim(),
+        password: selectedRoom.isLocked ? password.trim() : null,
+      });
+      setSelectedRoom(null);
+      navigate(`/room/${res.room.roomId}/lobby`);
+    } catch (err) {
+      console.error("failed to join room", err);
+    }
   };
 
   const isJoinValid =
     !!nickname.trim() &&
-    (!selectedRoom?.hasPassword || !!password.trim());
+    (!selectedRoom?.isLocked || !!password.trim());
 
   return (
     <div className="min-h-screen bg-gradient-dark flex flex-col">
@@ -127,10 +104,10 @@ export function RoomsPage() {
             </div>
           ) : (
             rooms.map((room, index) => {
-              const isFull = room.currentPlayers >= room.maxPlayers;
+              const isFull = room.playerCount >= room.maxPlayers;
               return (
                 <button
-                  key={room.id}
+                  key={room.roomId}
                   onClick={() => handleRoomClick(room)}
                   disabled={isFull}
                   className={`w-full glass-card rounded-xl p-4 text-left transition-all duration-300 animate-fade-in ${
@@ -143,15 +120,15 @@ export function RoomsPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        {room.hasPassword && (
-                          <Lock className="w-4 h-4 text-accent flex-shrink-0" />
+                        {room.isLocked && (
+                          <Lock className="w-4 h-4 text-accent shrink-0" />
                         )}
                         <h3 className="font-semibold truncate">
-                          {room.title}
+                          {room.roomTitle}
                         </h3>
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
-                        방장: {room.host}
+                        방장: {room.hostNickname ?? "-"}
                       </p>
                     </div>
                     <div
@@ -162,7 +139,7 @@ export function RoomsPage() {
                       }`}
                     >
                       <Users className="w-4 h-4" />
-                      {room.currentPlayers}/{room.maxPlayers}
+                      {room.playerCount}/{room.maxPlayers}
                     </div>
                   </div>
                 </button>
@@ -194,11 +171,20 @@ export function RoomsPage() {
         <DialogContent className="bg-card border-border/50 max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold">
-              {selectedRoom?.title}
+              {selectedRoom?.roomTitle}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              선택한 방에 입장하기 위해 닉네임과 (필요하다면) 비밀번호를 입력하는 대화상자입니다.
+            </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 mt-4">
+          <form
+            className="space-y-4 mt-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleJoin();
+            }}
+          >
             <div className="space-y-2">
               <Label
                 htmlFor="join-nickname"
@@ -217,7 +203,7 @@ export function RoomsPage() {
               />
             </div>
 
-            {selectedRoom?.hasPassword && (
+            {selectedRoom?.isLocked && (
               <div className="space-y-2 animate-fade-in">
                 <Label
                   htmlFor="join-password"
@@ -239,6 +225,7 @@ export function RoomsPage() {
 
             <div className="flex gap-3 pt-4">
               <Button
+                type="button"
                 variant="outline"
                 className="flex-1"
                 onClick={() => setSelectedRoom(null)}
@@ -246,15 +233,15 @@ export function RoomsPage() {
                 취소
               </Button>
               <Button
+                type="submit"
                 variant="gold"
                 className="flex-1"
-                onClick={handleJoin}
                 disabled={!isJoinValid}
               >
                 입장하기
               </Button>
             </div>
-          </div>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

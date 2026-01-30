@@ -13,6 +13,17 @@ const supabase_1 = require("../../db/supabase");
 const apiResponse_1 = require("../apiResponse");
 const auth_1 = require("../middleware/auth");
 exports.roomsRouter = (0, express_1.Router)();
+function getDeviceIdHeader(req) {
+    const raw = req.header("x-device-id") ?? req.header("X-Device-Id");
+    if (!raw)
+        return null;
+    const v = Array.isArray(raw) ? raw[0] : raw;
+    return v && v.length > 0 ? v : null;
+}
+function hashRoomPassword(roomId, password) {
+    // 방 비밀번호용 단순 해시 (roomId 를 salt 로 사용)
+    return crypto_1.default.scryptSync(password, roomId, 32).toString("hex");
+}
 // 3.1 GET /rooms
 exports.roomsRouter.get("/", async (req, res) => {
     try {
@@ -28,31 +39,38 @@ exports.roomsRouter.get("/", async (req, res) => {
 // 3.2 POST /rooms
 exports.roomsRouter.post("/", async (req, res) => {
     const { nickname, roomTitle, password } = req.body ?? {};
-    if (typeof nickname !== "string" || nickname.trim().length < 2) {
+    const deviceId = getDeviceIdHeader(req);
+    if (typeof nickname !== "string" || nickname.trim().length < 1) {
         return (0, apiResponse_1.sendError)(res, "BAD_REQUEST", "invalid nickname");
     }
-    if (typeof roomTitle !== "string" || roomTitle.trim().length < 2) {
+    if (typeof roomTitle !== "string" || roomTitle.trim().length < 1) {
         return (0, apiResponse_1.sendError)(res, "BAD_REQUEST", "invalid roomTitle");
     }
     try {
         const isLocked = typeof password === "string" && password.length > 0;
+        const roomId = crypto_1.default.randomUUID();
+        const passwordHash = isLocked && typeof password === "string" && password.length > 0
+            ? hashRoomPassword(roomId, password)
+            : null;
         const { data: room, error: roomError } = await supabase_1.supabase
             .from("rooms")
             .insert({
+            id: roomId,
             title: roomTitle,
             is_locked: isLocked,
-            // 서버에서 해시 처리해야 하지만, v1 스켈레톤에서는 평문 저장(추후 교체)
-            password_hash: isLocked ? password : null,
+            password_hash: passwordHash,
         })
             .select("*")
             .single();
         if (roomError || !room) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][create room insert rooms] error:", roomError);
             return (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to create room", 500);
         }
-        const roomId = room.id;
         const roomPlayerId = crypto_1.default.randomUUID();
         const sessionToken = crypto_1.default.randomBytes(32).toString("hex");
         const sessionTokenHash = (0, tokenHash_1.hashSessionToken)(sessionToken);
+        // 비밀번호 해시와 호스트 플레이어를 한 번에 생성
         const { error: playerError } = await supabase_1.supabase.from("room_players").insert({
             id: roomPlayerId,
             room_id: roomId,
@@ -61,9 +79,11 @@ exports.roomsRouter.post("/", async (req, res) => {
             is_ready: false,
             is_in_room: true,
             session_token_hash: sessionTokenHash,
-            // device_id 는 X-Device-Id 를 본격적으로 사용할 때 채운다.
+            device_id: deviceId,
         });
         if (playerError) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][create room insert room_players] error:", playerError);
             return (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to create host player", 500);
         }
         (0, apiResponse_1.sendOk)(res, {
@@ -82,6 +102,8 @@ exports.roomsRouter.post("/", async (req, res) => {
         });
     }
     catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[roomsRouter][POST /rooms] unexpected error:", err);
         (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to create room", 500);
     }
 });
@@ -89,7 +111,8 @@ exports.roomsRouter.post("/", async (req, res) => {
 exports.roomsRouter.post("/:roomId/join", async (req, res) => {
     const { roomId } = req.params;
     const { nickname, password } = req.body ?? {};
-    if (typeof nickname !== "string" || nickname.trim().length < 2) {
+    const deviceId = getDeviceIdHeader(req);
+    if (typeof nickname !== "string" || nickname.trim().length < 1) {
         return (0, apiResponse_1.sendError)(res, "BAD_REQUEST", "invalid nickname");
     }
     try {
@@ -99,11 +122,15 @@ exports.roomsRouter.post("/:roomId/join", async (req, res) => {
             .eq("id", roomId)
             .single();
         if (roomError || !room) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][join room select rooms] error:", roomError);
             return (0, apiResponse_1.sendError)(res, "NOT_FOUND", "room not found", 404);
         }
         if (room.is_locked) {
-            const storedPassword = room.password_hash;
-            if (!storedPassword || storedPassword !== password) {
+            const storedPasswordHash = room.password_hash;
+            const provided = typeof password === "string" ? password : "";
+            const inputHash = provided.length > 0 ? hashRoomPassword(roomId, provided) : null;
+            if (!storedPasswordHash || !inputHash || storedPasswordHash !== inputHash) {
                 return (0, apiResponse_1.sendError)(res, "CONFLICT", "invalid password", 409);
             }
         }
@@ -113,6 +140,8 @@ exports.roomsRouter.post("/:roomId/join", async (req, res) => {
             .eq("room_id", roomId)
             .eq("is_in_room", true);
         if (countError) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][join room count room_players] error:", countError);
             return (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to count players", 500);
         }
         const maxPlayers = room.max_players ?? 10;
@@ -130,8 +159,11 @@ exports.roomsRouter.post("/:roomId/join", async (req, res) => {
             is_ready: false,
             is_in_room: true,
             session_token_hash: sessionTokenHash,
+            device_id: deviceId,
         });
         if (insertError) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][join room insert room_players] error:", insertError);
             return (0, apiResponse_1.sendError)(res, "CONFLICT", "failed to join room", 409);
         }
         (0, apiResponse_1.sendOk)(res, {
@@ -150,6 +182,8 @@ exports.roomsRouter.post("/:roomId/join", async (req, res) => {
         });
     }
     catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[roomsRouter][POST /rooms/:roomId/join] unexpected error:", err);
         (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to join room", 500);
     }
 });
@@ -163,6 +197,8 @@ exports.roomsRouter.get("/:roomId/poll", auth_1.requireRoomAuth, async (req, res
             .eq("id", roomId)
             .single();
         if (roomError || !room) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][poll room select rooms] error:", roomError);
             return (0, apiResponse_1.sendError)(res, "NOT_FOUND", "room not found", 404);
         }
         const players = await (0, roomPlayersRepo_1.listRoomPlayers)(roomId);
@@ -191,6 +227,8 @@ exports.roomsRouter.get("/:roomId/poll", auth_1.requireRoomAuth, async (req, res
         });
     }
     catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[roomsRouter][GET /rooms/:roomId/poll] unexpected error:", err);
         (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to poll room", 500);
     }
 });
@@ -208,6 +246,8 @@ exports.roomsRouter.post("/:roomId/ready", auth_1.requireRoomAuth, async (req, r
             .eq("id", roomId)
             .single();
         if (roomError || !room) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][ready room select rooms] error:", roomError);
             return (0, apiResponse_1.sendError)(res, "NOT_FOUND", "room not found", 404);
         }
         if (room.phase !== "lobby") {
@@ -221,16 +261,20 @@ exports.roomsRouter.post("/:roomId/ready", auth_1.requireRoomAuth, async (req, r
             .select("is_ready")
             .single();
         if (error || !data) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][ready room update room_players] error:", error);
             return (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to update ready state", 500);
         }
         (0, apiResponse_1.sendOk)(res, { isReady: data.is_ready });
     }
     catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[roomsRouter][POST /rooms/:roomId/ready] unexpected error:", err);
         (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to update ready state", 500);
     }
 });
-// 4.3 GET /rooms/{roomId}/settings
-exports.roomsRouter.get("/:roomId/settings", auth_1.requireRoomAuth, async (req, res) => {
+// 4.3 GET /rooms/{roomId}/settings (host only)
+exports.roomsRouter.get("/:roomId/settings", auth_1.requireRoomAuth, auth_1.requireHost, async (req, res) => {
     const roomId = req.auth.roomId;
     try {
         const { data, error } = await supabase_1.supabase
@@ -239,34 +283,46 @@ exports.roomsRouter.get("/:roomId/settings", auth_1.requireRoomAuth, async (req,
             .eq("id", roomId)
             .single();
         if (error || !data) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][get settings select rooms] error:", error);
             return (0, apiResponse_1.sendError)(res, "NOT_FOUND", "room not found", 404);
         }
         (0, apiResponse_1.sendOk)(res, { settings: data.settings ?? {} });
     }
     catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[roomsRouter][GET /rooms/:roomId/settings] unexpected error:", err);
         (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to get settings", 500);
     }
 });
-// 4.4 PATCH /rooms/{roomId}/settings
-exports.roomsRouter.patch("/:roomId/settings", auth_1.requireRoomAuth, async (req, res) => {
+// 4.4 PATCH /rooms/{roomId}/settings (host only)
+exports.roomsRouter.patch("/:roomId/settings", auth_1.requireRoomAuth, auth_1.requireHost, async (req, res) => {
     const roomId = req.auth.roomId;
     const { settings } = req.body ?? {};
     if (typeof settings !== "object" || settings == null) {
         return (0, apiResponse_1.sendError)(res, "BAD_REQUEST", "settings must be object");
     }
+    const validated = validateRoomSettings(settings);
+    if (!validated.ok) {
+        return (0, apiResponse_1.sendError)(res, "BAD_REQUEST", validated.message ?? "invalid settings");
+    }
     try {
         const { data, error } = await supabase_1.supabase
             .from("rooms")
-            .update({ settings })
+            .update({ settings: validated.value })
             .eq("id", roomId)
             .select("settings")
             .single();
         if (error || !data) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][patch settings update rooms] error:", error);
             return (0, apiResponse_1.sendError)(res, "NOT_FOUND", "room not found", 404);
         }
         (0, apiResponse_1.sendOk)(res, { settings: data.settings });
     }
     catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[roomsRouter][PATCH /rooms/:roomId/settings] unexpected error:", err);
         (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to update settings", 500);
     }
 });
@@ -281,12 +337,33 @@ exports.roomsRouter.post("/:roomId/start", auth_1.requireRoomAuth, auth_1.requir
             .eq("id", roomId)
             .single();
         if (roomError || !room) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][start room select rooms] error:", roomError);
             return (0, apiResponse_1.sendError)(res, "NOT_FOUND", "room not found", 404);
         }
         if (room.phase !== "lobby") {
             return (0, apiResponse_1.sendError)(res, "CONFLICT", "room is not in lobby phase", 409);
         }
-        // 인원/준비 상태 검증은 추후 보강
+        // 인원/준비 상태 검증
+        const players = await (0, roomPlayersRepo_1.listRoomPlayers)(roomId);
+        const inRoomPlayers = players.filter((p) => p.is_in_room);
+        if (inRoomPlayers.length < 6) {
+            return (0, apiResponse_1.sendError)(res, "CONFLICT", "at least 6 players required", 409);
+        }
+        const maxPlayers = room.max_players ?? 10;
+        if (inRoomPlayers.length > maxPlayers) {
+            return (0, apiResponse_1.sendError)(res, "CONFLICT", "too many players in room", 409);
+        }
+        const hostPlayer = inRoomPlayers.find((p) => p.is_host);
+        const others = inRoomPlayers.filter((p) => !p.is_host);
+        if (!hostPlayer) {
+            return (0, apiResponse_1.sendError)(res, "CONFLICT", "host player not found", 409);
+        }
+        const notReady = others.filter((p) => !p.is_ready);
+        if (notReady.length > 0) {
+            return (0, apiResponse_1.sendError)(res, "CONFLICT", "all non-host players must be ready", 409);
+        }
+        // TODO: countdown 종료 시점에 rooms.phase를 game 으로 바꾸고 games row 생성
         const gameId = crypto_1.default.randomUUID();
         const endsAtMs = Date.now() + countdownSec * 1000;
         (0, apiResponse_1.sendOk)(res, {
@@ -299,6 +376,8 @@ exports.roomsRouter.post("/:roomId/start", auth_1.requireRoomAuth, auth_1.requir
         });
     }
     catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[roomsRouter][POST /rooms/:roomId/start] unexpected error:", err);
         (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to start game", 500);
     }
 });
@@ -308,11 +387,63 @@ exports.roomsRouter.delete("/:roomId", auth_1.requireRoomAuth, auth_1.requireHos
     try {
         const { error } = await supabase_1.supabase.from("rooms").delete().eq("id", roomId);
         if (error) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][delete room] error:", error);
             return (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to delete room", 500);
         }
         (0, apiResponse_1.sendOk)(res, { deleted: true });
     }
     catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[roomsRouter][DELETE /rooms/:roomId] unexpected error:", err);
         (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to delete room", 500);
     }
 });
+function validateRoomSettings(raw) {
+    const allowedDraw = [120, 180, 240]; // 2,3,4분
+    const allowedBomb = [60, 180, 300, 420]; // 1,3,5,7분
+    const allowedHandLimit = [3, 4, 5];
+    const drawIntervalSec = raw.drawIntervalSec;
+    const bombDelaySec = raw.bombDelaySec;
+    const handLimit = raw.handLimit;
+    const fearReviveHp = raw.fearReviveHp;
+    const trollSurviveSec = raw.trollSurviveSec;
+    const teamCounts = raw.teamCounts ?? {};
+    if (!allowedDraw.includes(drawIntervalSec)) {
+        return { ok: false, message: "invalid drawIntervalSec" };
+    }
+    if (!allowedBomb.includes(bombDelaySec)) {
+        return { ok: false, message: "invalid bombDelaySec" };
+    }
+    if (!allowedHandLimit.includes(handLimit)) {
+        return { ok: false, message: "invalid handLimit" };
+    }
+    if (typeof fearReviveHp !== "number" ||
+        fearReviveHp < 1 ||
+        fearReviveHp > 3) {
+        return { ok: false, message: "invalid fearReviveHp" };
+    }
+    if (typeof trollSurviveSec !== "number" ||
+        trollSurviveSec <= 0) {
+        return { ok: false, message: "invalid trollSurviveSec" };
+    }
+    const traitor = teamCounts.traitor ?? 1;
+    const hero = teamCounts.hero ?? 3;
+    const civil = teamCounts.civil ?? 1;
+    const total = traitor + hero + civil;
+    if (total < 3 || total > 10) {
+        return { ok: false, message: "invalid teamCounts" };
+    }
+    return {
+        ok: true,
+        value: {
+            ...raw,
+            drawIntervalSec,
+            bombDelaySec,
+            handLimit,
+            fearReviveHp,
+            trollSurviveSec,
+            teamCounts: { traitor, hero, civil },
+        },
+    };
+}

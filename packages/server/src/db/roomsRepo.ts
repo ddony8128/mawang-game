@@ -24,7 +24,6 @@ export async function listRooms(params: ListRoomsParams) {
     .from("rooms")
     .select(
       "id,title,is_locked,max_players,phase,updated_at,room_players!inner(id)",
-      { count: "exact" },
     )
     .in("phase", ["lobby", "game"])
     .order("updated_at", { ascending: false })
@@ -36,6 +35,8 @@ export async function listRooms(params: ListRoomsParams) {
 
   const { data, error } = await query;
   if (error) {
+    // eslint-disable-next-line no-console
+    console.error("[supabase][listRooms] error:", error);
     throw error;
   }
 

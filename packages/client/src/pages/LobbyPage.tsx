@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   Crown,
@@ -19,6 +19,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
@@ -28,14 +29,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-interface Player {
-  nickname: string;
-  isHost: boolean;
-  isReady: boolean;
-  wins: number;
-  losses: number;
-}
+import {
+  apiDeleteRoom,
+  apiPatchRoomSettings,
+  apiPollRoom,
+  apiReadyRoom,
+  apiStartRoom,
+} from "@/api/rest";
+import type {
+  RoomPlayerSummary,
+  RoomSettings as ApiRoomSettings,
+} from "@/types/rest";
+import { useClientStore } from "@/stores/clientStore";
 
 interface RoomSettings {
   cardDrawInterval: number;
@@ -52,18 +57,17 @@ export function LobbyPage() {
   const { roomId } = useParams();
   const navigate = useNavigate();
 
-  const [isHost] = useState(true); // TODO: 실제 호스트 판별 로직으로 교체
+  const myRoomPlayerId = useClientStore((state) =>
+    roomId ? state.sessions[roomId]?.roomPlayerId ?? null : null,
+  );
+
+  const [isHost, setIsHost] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
 
-  const [players, setPlayers] = useState<Player[]>([
-    { nickname: "나", isHost: true, isReady: false, wins: 3, losses: 2 },
-    { nickname: "용사1", isHost: false, isReady: true, wins: 5, losses: 1 },
-    { nickname: "마왕후보", isHost: false, isReady: true, wins: 2, losses: 4 },
-    { nickname: "뉴비", isHost: false, isReady: false, wins: 0, losses: 0 },
-  ]);
+  const [players, setPlayers] = useState<RoomPlayerSummary[]>([]);
 
   const [settings, setSettings] = useState<RoomSettings>({
     cardDrawInterval: 3,
@@ -87,18 +91,28 @@ export function LobbyPage() {
     .every((p) => p.isReady);
   const canStart = isHost && allOthersReady && players.length >= 6;
 
-  const handleToggleReady = () => {
-    setIsReady((prev) => !prev);
-    setPlayers((prev) =>
-      prev.map((p) =>
-        p.nickname === "나" ? { ...p, isReady: !p.isReady } : p
-      )
-    );
+  const handleToggleReady = async () => {
+    if (!roomId) return;
+    const next = !isReady;
+    try {
+      const res = await apiReadyRoom(roomId, next);
+      setIsReady(res.isReady);
+      // 내 준비 상태는 서버가 poll 응답에서 다시 내려주므로 여기서는 로컬 플래그만 갱신
+    } catch (err) {
+      console.error("failed to toggle ready", err);
+    }
   };
 
-  const handleStartGame = () => {
-    if (!canStart) return;
-    setCountdown(5);
+  const handleStartGame = async () => {
+    if (!canStart || !roomId) return;
+    try {
+      const res = await apiStartRoom(roomId, 5);
+      const endsAt = res.countdown?.endsAtMs ?? Date.now() + 5000;
+      const remain = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+      setCountdown(remain);
+    } catch (err) {
+      console.error("failed to start game", err);
+    }
   };
 
   const handleCloseRoom = () => {
@@ -116,6 +130,47 @@ export function LobbyPage() {
     const timer = setTimeout(() => setCountdown((prev) => (prev ?? 1) - 1), 1000);
     return () => clearTimeout(timer);
   }, [countdown, navigate, roomId]);
+
+  const syncFromPoll = useCallback(
+    (data: Awaited<ReturnType<typeof apiPollRoom>>) => {
+      setPlayers(data.players);
+
+      const me = data.players.find(
+        (p) => myRoomPlayerId && p.roomPlayerId === myRoomPlayerId,
+      );
+
+      setIsHost(!!me?.isHost);
+      setIsReady(!!me?.isReady);
+      // room title / phase는 추후 roomInfo 상태로 승격 가능
+    },
+    [myRoomPlayerId],
+  );
+
+  // Poll room info 주기적으로
+  useEffect(() => {
+    if (!roomId) return;
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        const data = await apiPollRoom(roomId);
+        if (!cancelled && !data.unchanged) {
+          syncFromPoll(data);
+        }
+      } catch (err) {
+        console.error("failed to poll room", err);
+      } finally {
+        if (!cancelled) {
+          setTimeout(tick, 2000);
+        }
+      }
+    };
+
+    tick();
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId, syncFromPoll]);
 
   return (
     <div className="min-h-screen bg-gradient-dark flex flex-col">
@@ -170,54 +225,55 @@ export function LobbyPage() {
       {/* Player List */}
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-3 max-w-2xl mx-auto pb-24">
-          {players.map((player, index) => (
-            <div
-              key={player.nickname}
-              className={`glass-card rounded-xl p-4 flex items-center gap-3 animate-fade-in ${
-                player.nickname === "나" ? "border-primary/50" : ""
-              }`}
-              style={{ animationDelay: `${index * 0.05}s` }}
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  {player.isHost && (
-                    <Crown className="w-4 h-4 text-accent flex-shrink-0" />
-                  )}
-                  <span className="font-semibold truncate">
-                    {player.nickname}
-                    {player.nickname === "나" && (
-                      <span className="text-primary ml-1">(나)</span>
+          {players.map((player, index) => {
+            const isMe = myRoomPlayerId != null && player.roomPlayerId === myRoomPlayerId;
+            return (
+              <div
+                key={player.roomPlayerId}
+                className={`glass-card rounded-xl p-4 flex items-center gap-3 animate-fade-in ${
+                  isMe ? "border-primary/50" : ""
+                }`}
+                style={{ animationDelay: `${index * 0.05}s` }}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    {player.isHost && (
+                      <Crown className="w-4 h-4 text-accent shrink-0" />
                     )}
-                  </span>
+                    <span className="font-semibold truncate">
+                      {player.nickname}
+                      {isMe && <span className="text-primary ml-1">(나)</span>}
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    전적: {player.wins}승 {player.losses}패
+                  </p>
                 </div>
-                <p className="text-sm text-muted-foreground mt-1">
-                  전적: {player.wins}승 {player.losses}패
-                </p>
-              </div>
 
-              {!player.isHost && (
-                <div
-                  className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
-                    player.isReady
-                      ? "bg-good/20 text-good"
-                      : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  {player.isReady ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      준비
-                    </>
-                  ) : (
-                    <>
-                      <X className="w-4 h-4" />
-                      대기
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+                {!player.isHost && (
+                  <div
+                    className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
+                      player.isReady
+                        ? "bg-good/20 text-good"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {player.isReady ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        준비
+                      </>
+                    ) : (
+                      <>
+                        <X className="w-4 h-4" />
+                        대기
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
 
           {!canStart && isHost && players.length < 6 && (
             <p className="text-center text-muted-foreground text-sm py-4">
@@ -249,6 +305,9 @@ export function LobbyPage() {
             <DialogTitle className="text-lg font-bold text-gradient-gold">
               방 설정
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              카드 드로우 주기, 폭탄 시한, 손패 제한, 마왕 관련 설정을 변경하는 대화상자입니다.
+            </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-6 mt-4">
@@ -335,13 +394,78 @@ export function LobbyPage() {
                 ]}
               />
             </div>
+
+            {/* Team Composition Settings */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-sm text-muted-foreground">
+                팀 구성
+              </h4>
+              <SettingSelect
+                label="배신자 수"
+                value={String(settings.traitorCount)}
+                onChange={(v) =>
+                  setSettings((s) => ({
+                    ...s,
+                    traitorCount: Number(v),
+                  }))
+                }
+                options={[
+                  { value: "1", label: "1명" },
+                  { value: "2", label: "2명" },
+                ]}
+              />
+              <SettingSelect
+                label="용사 수"
+                value={String(settings.heroCount)}
+                onChange={(v) =>
+                  setSettings((s) => ({
+                    ...s,
+                    heroCount: Number(v),
+                  }))
+                }
+                options={[
+                  { value: "2", label: "2명" },
+                  { value: "3", label: "3명" },
+                  { value: "4", label: "4명" },
+                ]}
+              />
+              <SettingSelect
+                label="시민 수"
+                value={String(settings.citizenCount)}
+                onChange={(v) =>
+                  setSettings((s) => ({
+                    ...s,
+                    citizenCount: Number(v),
+                  }))
+                }
+                options={[
+                  { value: "0", label: "0명" },
+                  { value: "1", label: "1명" },
+                  { value: "2", label: "2명" },
+                  { value: "3", label: "3명" },
+                ]}
+              />
+            </div>
           </div>
 
           <DialogFooter className="mt-6">
             <Button variant="outline" onClick={() => setShowSettings(false)}>
               닫기
             </Button>
-            <Button variant="gold" onClick={() => setShowSettings(false)}>
+            <Button
+              variant="gold"
+              onClick={async () => {
+                if (!roomId) return;
+                try {
+                  const apiSettings = toApiSettings(settings);
+                  const res = await apiPatchRoomSettings(roomId, apiSettings);
+                  setSettings(fromApiSettings(res.settings));
+                  setShowSettings(false);
+                } catch (err) {
+                  console.error("failed to save settings", err);
+                }
+              }}
+            >
               저장
             </Button>
           </DialogFooter>
@@ -355,6 +479,9 @@ export function LobbyPage() {
             <DialogTitle className="text-lg font-bold text-center">
               방을 닫으시겠습니까?
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              현재 방을 삭제하면 모든 플레이어가 방에서 나가게 됩니다.
+            </DialogDescription>
           </DialogHeader>
           <p className="text-center text-muted-foreground text-sm">
             모든 플레이어가 퇴장됩니다.
@@ -370,7 +497,15 @@ export function LobbyPage() {
             <Button
               variant="destructive"
               className="flex-1"
-              onClick={handleCloseRoom}
+              onClick={async () => {
+                if (!roomId) return;
+                try {
+                  await apiDeleteRoom(roomId);
+                } catch (err) {
+                  console.error("failed to delete room", err);
+                }
+                handleCloseRoom();
+              }}
             >
               닫기
             </Button>
@@ -421,5 +556,51 @@ function SettingSelect({
       </Select>
     </div>
   );
+}
+
+// 변환 헬퍼: API RoomSettings <-> UI RoomSettings
+function fromApiSettings(api: ApiRoomSettings | undefined): RoomSettings {
+  if (!api) {
+    return {
+      cardDrawInterval: 3,
+      bombTimer: 5,
+      handLimit: 4,
+      fearKingReviveHp: 3,
+      chaosKingPersistTime: 3,
+      traitorCount: 1,
+      heroCount: 3,
+      citizenCount: 1,
+    };
+  }
+  return {
+    cardDrawInterval: Math.round((api.drawIntervalSec ?? 180) / 60),
+    bombTimer: Math.round((api.bombDelaySec ?? 300) / 60),
+    handLimit: api.handLimit ?? 4,
+    fearKingReviveHp: api.fearReviveHp ?? 3,
+    chaosKingPersistTime: Math.round((api.trollSurviveSec ?? 180) / 60),
+    traitorCount: api.teamCounts?.traitor ?? 1,
+    heroCount: api.teamCounts?.hero ?? 3,
+    citizenCount: api.teamCounts?.civil ?? 1,
+  };
+}
+
+function toApiSettings(ui: RoomSettings): ApiRoomSettings {
+  return {
+    drawIntervalSec: ui.cardDrawInterval * 60,
+    bombDelaySec: ui.bombTimer * 60,
+    handLimit: ui.handLimit,
+    fearReviveHp: ui.fearKingReviveHp,
+    trollSurviveSec: ui.chaosKingPersistTime * 60,
+    teamCounts: {
+      traitor: ui.traitorCount,
+      hero: ui.heroCount,
+      civil: ui.citizenCount,
+    },
+    gmMode: {
+      enabled: false,
+      hostIsGM: false,
+      fixedRoles: {},
+    },
+  };
 }
 

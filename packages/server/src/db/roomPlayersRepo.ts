@@ -22,7 +22,11 @@ export async function listRoomPlayers(roomId: string) {
     .eq("is_in_room", true)
     .order("created_at", { ascending: true });
 
-  if (error) throw error;
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error("[supabase][listRoomPlayers] error:", error);
+    throw error;
+  }
 
   return (data ?? []) as RoomPlayerRecord[];
 }
@@ -38,7 +42,11 @@ export async function updateReadyState(
     .select("id,is_ready")
     .single();
 
-  if (error) throw error;
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error("[supabase][updateReadyState] error:", error);
+    throw error;
+  }
   return data as { id: string; is_ready: boolean };
 }
 

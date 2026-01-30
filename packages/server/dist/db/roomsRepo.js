@@ -6,7 +6,7 @@ async function listRooms(params) {
     const limit = params.limit ?? 50;
     let query = supabase_1.supabase
         .from("rooms")
-        .select("id,title,is_locked,max_players,phase,updated_at,room_players!inner(id)", { count: "exact" })
+        .select("id,title,is_locked,max_players,phase,updated_at,room_players!inner(id)")
         .in("phase", ["lobby", "game"])
         .order("updated_at", { ascending: false })
         .limit(limit);
@@ -15,6 +15,8 @@ async function listRooms(params) {
     }
     const { data, error } = await query;
     if (error) {
+        // eslint-disable-next-line no-console
+        console.error("[supabase][listRooms] error:", error);
         throw error;
     }
     // playerCount 는 room_players inner join count 를 활용

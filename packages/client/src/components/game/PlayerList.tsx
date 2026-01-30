@@ -60,7 +60,7 @@ export default function PlayerList({
                       )}
                     </span>
                     {p.isDead && (
-                      <Skull className="w-3 h-3 text-destructive flex-shrink-0" />
+                      <Skull className="w-3 h-3 text-destructive shrink-0" />
                     )}
                   </div>
                   <div className="flex items-center gap-1 mt-1 text-[11px] text-muted-foreground">

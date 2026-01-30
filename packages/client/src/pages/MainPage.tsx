@@ -1,14 +1,22 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { DoorOpen, Plus, HelpCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { GameTitle } from "@/components/game/GameTitle";
 import { CreateRoomModal } from "@/components/game/CreateRoomModal";
+import { apiAuth } from "@/api/rest";
 
 export function MainPage() {
   const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
+
+  // 앱 진입 시 1회 인증/부팅
+  useEffect(() => {
+    void apiAuth().catch((err) => {
+      console.error("auth failed", err);
+    });
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-dark flex flex-col items-center justify-center p-6">

@@ -43,7 +43,7 @@ export default function AbilityBar({
                 variant="secondary"
                 disabled={disabled || isOnCooldown}
                 onClick={() => onUseAbility(ability.id)}
-                className="flex-shrink-0 min-w-[140px] justify-start"
+                className="shrink-0 min-w-[140px] justify-start"
               >
                 <div className="flex flex-col items-start">
                   <span className="text-xs font-semibold">
