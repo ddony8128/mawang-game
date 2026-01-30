@@ -8,6 +8,7 @@ import { LobbyPage } from "./pages/LobbyPage";
 import { MainPage } from "./pages/MainPage";
 import { ResultPage } from "./pages/ResultPage";
 import { RoomsPage } from "./pages/RoomsPage";
+import { NotFoundPage } from "./pages/NotFoundPage";
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
         <Route path="/room/:roomId/lobby" element={<LobbyPage />} />
         <Route path="/room/:roomId/game" element={<GamePage />} />
         <Route path="/room/:roomId/result" element={<ResultPage />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>
   );
