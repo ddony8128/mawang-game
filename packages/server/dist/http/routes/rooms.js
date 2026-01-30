@@ -8,6 +8,7 @@ const crypto_1 = __importDefault(require("crypto"));
 const express_1 = require("express");
 const tokenHash_1 = require("../../auth/tokenHash");
 const roomPlayersRepo_1 = require("../../db/roomPlayersRepo");
+const gamesRepo_1 = require("../../db/gamesRepo");
 const roomsRepo_1 = require("../../db/roomsRepo");
 const supabase_1 = require("../../db/supabase");
 const apiResponse_1 = require("../apiResponse");
@@ -363,8 +364,25 @@ exports.roomsRouter.post("/:roomId/start", auth_1.requireRoomAuth, auth_1.requir
         if (notReady.length > 0) {
             return (0, apiResponse_1.sendError)(res, "CONFLICT", "all non-host players must be ready", 409);
         }
-        // TODO: countdown 종료 시점에 rooms.phase를 game 으로 바꾸고 games row 생성
-        const gameId = crypto_1.default.randomUUID();
+        // 게임 row 생성
+        // - v1: seq 는 1부터 시작하는 단순 값으로 사용한다.
+        //   (추후 여러 판을 지원할 때는 games 테이블에서 room_id 기준 max(seq)+1 을 계산하도록 확장 가능)
+        const settings = room.settings ?? {};
+        const gameRecord = await (0, gamesRepo_1.createGameForRoom)({
+            roomId,
+            settings,
+        });
+        const gameId = gameRecord.id;
+        // 방 phase 를 game 으로 전환
+        const { error: updateRoomError } = await supabase_1.supabase
+            .from("rooms")
+            .update({ phase: "game" })
+            .eq("id", roomId);
+        if (updateRoomError) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][start room update rooms.phase] error:", updateRoomError);
+            return (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to update room phase", 500);
+        }
         const endsAtMs = Date.now() + countdownSec * 1000;
         (0, apiResponse_1.sendOk)(res, {
             started: true,

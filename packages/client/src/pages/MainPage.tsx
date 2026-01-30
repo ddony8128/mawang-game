@@ -10,12 +10,33 @@ import { apiAuth } from "@/api/rest";
 export function MainPage() {
   const navigate = useNavigate();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [reconnectInfo, setReconnectInfo] = useState<{
+    available: boolean;
+    roomId: string | null;
+    gameId: string | null;
+    roomTitle: string | null;
+    phase: "lobby" | "game" | null;
+  } | null>(null);
 
   // 앱 진입 시 1회 인증/부팅
   useEffect(() => {
-    void apiAuth().catch((err) => {
-      console.error("auth failed", err);
-    });
+    void apiAuth()
+      .then((data) => {
+        if (data.reconnect?.available) {
+          setReconnectInfo({
+            available: data.reconnect.available,
+            roomId: data.reconnect.roomId,
+            gameId: data.reconnect.gameId,
+            roomTitle: data.reconnect.roomTitle,
+            phase: data.reconnect.phase,
+          });
+        } else {
+          setReconnectInfo(null);
+        }
+      })
+      .catch((err) => {
+        console.error("auth failed", err);
+      });
   }, []);
 
   return (
@@ -31,6 +52,25 @@ export function MainPage() {
         <GameTitle />
 
         <div className="w-full space-y-4">
+          {reconnectInfo?.available && reconnectInfo.roomId && (
+            <Button
+              variant="menu"
+              onClick={() => {
+                if (reconnectInfo.phase === "game") {
+                  navigate(`/room/${reconnectInfo.roomId}/game`);
+                } else {
+                  navigate(`/room/${reconnectInfo.roomId}/lobby`);
+                }
+              }}
+              className="animate-slide-up"
+              style={{ animationDelay: "0.05s" }}
+            >
+              <DoorOpen className="w-5 h-5" />
+              {reconnectInfo.roomTitle
+                ? `${reconnectInfo.roomTitle} 재접속`
+                : "이전 게임으로 재접속"}
+            </Button>
+          )}
           <Button
             variant="menu"
             onClick={() => navigate("/rooms")}

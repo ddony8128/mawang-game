@@ -20,135 +20,23 @@ import type {
   UiPlayer,
   UiTeam,
 } from "@/types/game-ui";
+import { wsClient } from "@/api/ws";
+import { useClientStore } from "@/stores/clientStore";
+import { useFoggedGameStore } from "@/stores/foggedGameStore";
+import type { FoggedGameState } from "@/types/foggedGame";
 import { Button } from "@/components/ui/button";
 
-// 개발용 Mock 게임 상태
-const createMockGameState = (roomId: string): UiGameState => ({
-  roomId,
-  myPlayerId: "player1",
-  nextCardDrawInSeconds: 142,
-  gamePhase: "playing",
-  settings: {
-    cardDrawInterval: 3,
-    bombTimer: 5,
-    handLimit: 4,
-    fearKingReviveHp: 3,
-    chaosKingPersistTime: 3,
-  },
-  eventLog: [
-    {
-      id: "1",
-      timestamp: Date.now() - 60000,
-      type: "card_draw",
-      message: "카드를 획득했습니다: 칼",
-    },
-    {
-      id: "2",
-      timestamp: Date.now() - 30000,
-      type: "damage",
-      message: "마왕후보가 용사1을 공격했습니다",
-    },
-  ],
-  players: [
-    {
-      id: "player1",
-      nickname: "나",
-      hp: 3,
-      maxHp: 3,
-      isDead: false,
-      role: {
-        id: "parrying_man",
-        name: "패링맨",
-        team: "good",
-        abilities: [
-          {
-            id: "shield",
-            name: "무적방패",
-            description: "1분간 피해 무효",
-            cooldown: 180,
-          },
-        ],
-      },
-      hand: [
-        { id: "c1", type: "sword", name: "칼", description: "대상 1명에게 1 데미지" },
-        {
-          id: "c2",
-          type: "magnifier",
-          name: "돋보기",
-          description: "상대 정보 확인에 사용",
-        },
-        {
-          id: "c3",
-          type: "bomb",
-          name: "폭탄",
-          description: "5분 후 2 데미지",
-        },
-      ],
-      status: {},
-      knownInfo: {
-        player3: { team: "evil" },
-      },
-    },
-    {
-      id: "player2",
-      nickname: "용사1",
-      hp: 2,
-      maxHp: 3,
-      isDead: false,
-      hand: [],
-      status: { hasBomb: { remainingSeconds: 180, damage: 2 } },
-      knownInfo: {},
-    },
-    {
-      id: "player3",
-      nickname: "마왕후보",
-      hp: 3,
-      maxHp: 3,
-      isDead: false,
-      hand: [],
-      status: {},
-      knownInfo: {},
-    },
-    {
-      id: "player4",
-      nickname: "뉴비",
-      hp: 0,
-      maxHp: 3,
-      isDead: true,
-      hand: [],
-      status: {},
-      knownInfo: {},
-    },
-    {
-      id: "player5",
-      nickname: "참모맨",
-      hp: 3,
-      maxHp: 3,
-      isDead: false,
-      hand: [],
-      status: { isIntimidated: { remainingSeconds: 45 } },
-      knownInfo: {},
-    },
-    {
-      id: "player6",
-      nickname: "힐러짱",
-      hp: 1,
-      maxHp: 3,
-      isDead: false,
-      hand: [],
-      status: {},
-      knownInfo: {},
-    },
-  ],
-});
+// FoggedGameState → UiGameState 매핑에 사용하는 최소 헬퍼만 남긴다.
 
 export function GamePage() {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
 
-  const [gameState, setGameState] = useState<UiGameState>(() =>
-    createMockGameState(roomId || "test")
-  );
+  const { sessions } = useClientStore();
+  const session = roomId ? sessions[roomId] : undefined;
+  const foggedState = useFoggedGameStore((s) => s.state);
+
+  const [gameState, setGameState] = useState<UiGameState | null>(null);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -204,6 +92,24 @@ export function GamePage() {
     isWinner: boolean;
   }[]>([]);
 
+  // FoggedGameState → UiGameState 매핑
+  useEffect(() => {
+    if (!foggedState || !roomId) return;
+    setGameState(mapFoggedToUi(foggedState, roomId));
+  }, [foggedState, roomId]);
+
+  if (!roomId) {
+    return null;
+  }
+
+  if (!gameState) {
+    return (
+      <div className="min-h-screen bg-gradient-dark flex items-center justify-center">
+        <div className="text-muted-foreground text-sm">게임 상태를 불러오는 중...</div>
+      </div>
+    );
+  }
+
   const myPlayer = gameState.players.find(
     (p) => p.id === gameState.myPlayerId
   )!;
@@ -212,6 +118,27 @@ export function GamePage() {
   const selectedPlayer = gameState.players.find(
     (p) => p.id === selectedPlayerId
   );
+
+  // TODO: 실제 FoggedGameState -> UiGameState 매핑 및 wsClient 연결
+  useEffect(() => {
+    if (!roomId || !session) return;
+
+    wsClient.connect({
+      roomId,
+      gameId: null,
+      onEnd: () => {
+        // 결과 화면 전환은 WebSocket end payload 와 ResultPage 설계에 맞춰 이후 연동
+      },
+      onError: () => {
+        // v1: 단순히 로비로 돌려보낸다.
+        navigate(`/room/${roomId}`);
+      },
+    });
+
+    return () => {
+      wsClient.disconnect("navigation");
+    };
+  }, [roomId, session, navigate]);
 
   // 손패 제한 체크
   useEffect(() => {
@@ -588,5 +515,56 @@ export function GamePage() {
       </div>
     </div>
   );
+}
+
+function mapFoggedToUi(state: FoggedGameState, roomId: string): UiGameState {
+  const myId = state.me.playerId;
+
+  const players: UiPlayer[] = state.players.map((p) => ({
+    id: p.playerId,
+    nickname: p.nickname,
+    hp: p.hp,
+    maxHp: 3,
+    isDead: !p.alive,
+    hand:
+      p.playerId === myId
+        ? state.me.hand.map<UiCard>((c) => ({
+            id: c.id,
+            type: c.type === "knife" ? "sword" : c.type,
+            name:
+              c.type === "knife"
+                ? "칼"
+                : c.type === "bomb"
+                  ? "폭탄"
+                  : c.type === "beer"
+                    ? "맥주"
+                    : "돋보기",
+            description: "",
+          }))
+        : [],
+    status: {},
+    knownInfo: {},
+  }));
+
+  const uiState: UiGameState = {
+    roomId,
+    myPlayerId: myId,
+    nextCardDrawInSeconds: Math.max(
+      0,
+      Math.floor((state.timers.nextDrawAtMs - state.meta.nowMs) / 1000),
+    ),
+    gamePhase: state.meta.state === "running" ? "playing" : "ended",
+    settings: {
+      cardDrawInterval: 0,
+      bombTimer: 0,
+      handLimit: state.me.hand.length,
+      fearKingReviveHp: 0,
+      chaosKingPersistTime: 0,
+    },
+    eventLog: [],
+    players,
+  };
+
+  return uiState;
 }
 

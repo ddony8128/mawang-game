@@ -1,7 +1,7 @@
 // Effect / Cooldown / Knowledge / Log 관련 타입
 // 문서: document/ServerStateModel 5~7, 9
 
-import type { SkillKey, Team } from "./identity";
+import type { RoleKey, SkillKey, Team } from "./identity";
 
 export type EffectVisibility = "public" | "self" | "self_hidden" | "none";
 
@@ -110,7 +110,7 @@ export type KnowRole =
     }
   | {
       kind: "role";
-      role: string;
+      role: RoleKey;
       obtainedAtMs: number;
       by: "magnifier3" | "skill";
     };

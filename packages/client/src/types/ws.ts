@@ -89,15 +89,10 @@ export type WsServerSnapshotPayload = {
 export type WsServerPatchPayload = {
   baseSnapshotVersion: number;
   nextSnapshotVersion: number;
-  patch: {
-    timers?: { nextDrawAtMs?: number };
-    me?: Partial<FoggedGameState["me"]>;
-    players?: Array<{
-      playerId: string;
-      alive?: boolean;
-      hp?: number;
-    }>;
-  };
+  // FoggedGameState 의 부분 업데이트를 의미한다.
+  // 현재는 meta/timers/me/players/log 중 일부만 내려오지만,
+  // 타입 상으로는 전체 FoggedGameState 에 대한 Partial 로 정의해 둔다.
+  patch: Partial<FoggedGameState>;
   logItems?: FoggedLogItem[];
 };
 
