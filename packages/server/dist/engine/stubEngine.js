@@ -601,7 +601,8 @@ class GameEngineImpl {
                     targetPlayerId: target.identity.playerId,
                     mode: useMode,
                 },
-                modal: false,
+                // 돋보기 사용 결과는 시전자에게 중요한 정보이므로 모달로 노출
+                modal: true,
             });
             const actorUpdate = ensurePrivateUpdate(ctx.privateUpdates, actor.identity.playerId);
             actorUpdate.logItems = [...(actorUpdate.logItems ?? []), usedLog];
@@ -985,7 +986,8 @@ class GameEngineImpl {
                     skillKey: "mawang_fear",
                     targetPlayerId,
                 },
-                modal: false,
+                // 마왕(시전자)에게도 겁주기 사용 모달을 띄워준다.
+                modal: true,
             });
             const update = ensurePrivateUpdate(ctx.privateUpdates, actor.identity.playerId);
             update.logItems = [...(update.logItems ?? []), logItem];
@@ -1113,7 +1115,7 @@ class GameEngineImpl {
             });
             this.enqueueInternalTask("APPLY_DAMAGE", {
                 playerId: target.identity.playerId,
-                amount: 3,
+                amount: 2,
                 cause: {
                     type: "slayer_ult",
                     byPlayerId: actor.identity.playerId,
@@ -1137,7 +1139,7 @@ class GameEngineImpl {
                 payload: {
                     byPlayerId: actor.identity.playerId,
                     targetPlayerId,
-                    damage: 3,
+                    damage: 2,
                 },
                 modal: true,
             });
@@ -1160,6 +1162,11 @@ class GameEngineImpl {
     handleInternalTask(task, ctx) {
         if (!this.state)
             return;
+        // 게임이 이미 종료되었다면, 이후에 도착한 모든 내부 타이머/처리(CARD_DRAW, BOMB_EXPLODE 등)는 무시한다.
+        // - 카드 드로우/폭탄/효과 만료 타이머가 게임 종료 후에도 남아 있어도 로직이 더 진행되지 않도록 보장한다.
+        if (this.state.meta.state !== "running") {
+            return;
+        }
         const now = this.getNowMs();
         if (task.type === "APPLY_DAMAGE") {
             const playerId = task.payload?.playerId;
@@ -1230,6 +1237,27 @@ class GameEngineImpl {
                         hp: player.hp,
                         alive: player.alive,
                     });
+                    // 공포의 재림으로 부활한 마왕은 이제 모두에게 정체가 공개된다.
+                    for (const ps of Object.values(this.state.players)) {
+                        const prev = ps.knowledge.knownByTarget[player.identity.playerId] ?? [];
+                        ps.knowledge.knownByTarget[player.identity.playerId] = [
+                            ...prev,
+                            {
+                                kind: "team",
+                                team: player.team,
+                                obtainedAtMs: now,
+                                by: "skill",
+                            },
+                            {
+                                kind: "role",
+                                role: player.role,
+                                obtainedAtMs: now,
+                                by: "skill",
+                            },
+                        ];
+                        // knowledge 변경이 클라이언트 patch 에 반영되도록 표시
+                        markStateChanged(ctx.privateUpdates, ps);
+                    }
                     // 전역 로그: 공포의 재림 발동
                     const global = appendLogItem(this.state.log, {
                         atMs: now,
@@ -1277,6 +1305,27 @@ class GameEngineImpl {
                         playerId: player.identity.playerId,
                         effectKind: "trollStubborn",
                     });
+                    // 분탕의 집념이 발동되면, 해당 플레이어가 분탕의 마왕임이 모두에게 공개된다.
+                    for (const ps of Object.values(this.state.players)) {
+                        const prev = ps.knowledge.knownByTarget[player.identity.playerId] ?? [];
+                        ps.knowledge.knownByTarget[player.identity.playerId] = [
+                            ...prev,
+                            {
+                                kind: "team",
+                                team: player.team,
+                                obtainedAtMs: now,
+                                by: "skill",
+                            },
+                            {
+                                kind: "role",
+                                role: player.role,
+                                obtainedAtMs: now,
+                                by: "skill",
+                            },
+                        ];
+                        // knowledge 변경이 클라이언트 patch 에 반영되도록 표시
+                        markStateChanged(ctx.privateUpdates, ps);
+                    }
                     const global = appendLogItem(this.state.log, {
                         atMs: now,
                         type: "GLOBAL_TROLL_STUBBORN_TRIGGERED",

@@ -21,7 +21,8 @@ export type UiAbility = {
 };
 
 export type UiPlayerStatus = {
-  hasBomb?: { remainingSeconds: number; damage: number };
+  // 나에게 설치된 폭탄들 (여러 개 가능)
+  bombs?: Array<{ id: string; remainingSeconds: number; damage: number }>;
   isIntimidated?: { remainingSeconds: number };
   isInvincible?: { remainingSeconds: number };
   // 분탕의 집념(일시 부활) 상태

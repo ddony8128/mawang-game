@@ -116,15 +116,19 @@ export default function PlayerList({
                         역할: <span className="font-medium">{info.roleName}</span>
                       </div>
                     )}
-                    {p.status.hasBomb && (
-                      <div className="flex items-center gap-1 text-xs text-destructive mt-1">
-                        <Bomb className="w-4 h-4" />
-                        <span>폭탄</span>
-                        <span className="font-mono">
-                          {formatCountdown(p.status.hasBomb.remainingSeconds)}
-                        </span>
-                      </div>
-                    )}
+                    {p.status.bombs &&
+                      p.status.bombs.map((bomb) => (
+                        <div
+                          key={bomb.id}
+                          className="flex items-center gap-1 text-xs text-destructive mt-1"
+                        >
+                          <Bomb className="w-4 h-4" />
+                          <span>폭탄</span>
+                          <span className="font-mono">
+                            {formatCountdown(bomb.remainingSeconds)}
+                          </span>
+                        </div>
+                      ))}
                     {p.status.isInvincible && (
                       <div className="flex items-center gap-1 text-xs text-hero mt-1">
                         <Shield className="w-4 h-4" />

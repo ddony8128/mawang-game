@@ -14,7 +14,6 @@ function GameTopBar({
 }: GameTopBarProps) {
   const minutes = Math.floor(nextCardDrawInSeconds / 60);
   const seconds = nextCardDrawInSeconds % 60;
-  const bombSeconds = player.status.hasBomb?.remainingSeconds ?? 0;
   const invincibleSeconds = player.status.isInvincible?.remainingSeconds ?? 0;
   const intimidatedSeconds = player.status.isIntimidated?.remainingSeconds ?? 0;
   const stubbornSeconds = player.status.trollStubborn?.remainingSeconds ?? 0;
@@ -77,15 +76,19 @@ function GameTopBar({
                 </span>
               </div>
             )}
-            {player.status.hasBomb && (
-              <div className="flex items-center gap-1 text-xs text-amber-500 bg-amber-500/10 border border-amber-500/40 rounded-full px-3 py-1">
-                <Bomb className="w-4 h-4" />
-                <span>폭탄</span>
-                <span className="font-mono">
-                  {formatCountdown(bombSeconds)}
-                </span>
-              </div>
-            )}
+            {player.status.bombs &&
+              player.status.bombs.map((bomb) => (
+                <div
+                  key={bomb.id}
+                  className="flex items-center gap-1 text-xs text-amber-500 bg-amber-500/10 border border-amber-500/40 rounded-full px-3 py-1"
+                >
+                  <Bomb className="w-4 h-4" />
+                  <span>폭탄</span>
+                  <span className="font-mono">
+                    {formatCountdown(bomb.remainingSeconds)}
+                  </span>
+                </div>
+              ))}
           </div>
         </div>
 

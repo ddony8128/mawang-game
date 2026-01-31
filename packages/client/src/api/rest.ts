@@ -214,9 +214,24 @@ export async function apiDeleteRoom(
   return await unwrap<ResponseData<DeleteRoomResponse>>(
     `/api/rooms/${roomId}`,
     {
-    method: "GET",
-    headers,
+      method: "DELETE",
+      headers,
     },
   );
+}
+
+// 5.2 POST /rooms/{roomId}/leave
+export async function apiLeaveRoom(
+  roomId: string,
+): Promise<{ left: boolean }> {
+  const headers = buildHeaders(roomId);
+  const data = await unwrap<{ left: boolean }>(
+    `/api/rooms/${roomId}/leave`,
+    {
+      method: "POST",
+      headers,
+    },
+  );
+  return data;
 }
 

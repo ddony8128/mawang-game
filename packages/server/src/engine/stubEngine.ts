@@ -1346,7 +1346,7 @@ export class GameEngineImpl implements GameEngine {
 
       this.enqueueInternalTask("APPLY_DAMAGE", {
         playerId: target.identity.playerId,
-        amount: 3,
+        amount: 2,
         cause: {
           type: "slayer_ult",
           byPlayerId: actor.identity.playerId,
@@ -1371,7 +1371,7 @@ export class GameEngineImpl implements GameEngine {
         payload: {
           byPlayerId: actor.identity.playerId,
           targetPlayerId,
-          damage: 3,
+          damage: 2,
         },
         modal: true,
       });
@@ -1412,6 +1412,12 @@ export class GameEngineImpl implements GameEngine {
     },
   ) {
     if (!this.state) return;
+
+    // 게임이 이미 종료되었다면, 이후에 도착한 모든 내부 타이머/처리(CARD_DRAW, BOMB_EXPLODE 등)는 무시한다.
+    // - 카드 드로우/폭탄/효과 만료 타이머가 게임 종료 후에도 남아 있어도 로직이 더 진행되지 않도록 보장한다.
+    if (this.state.meta.state !== "running") {
+      return;
+    }
 
     const now = this.getNowMs();
 
@@ -1509,6 +1515,8 @@ export class GameEngineImpl implements GameEngine {
                 by: "skill",
               } as any,
             ];
+            // knowledge 변경이 클라이언트 patch 에 반영되도록 표시
+            markStateChanged(ctx.privateUpdates, ps);
           }
 
           // 전역 로그: 공포의 재림 발동
@@ -1584,6 +1592,8 @@ export class GameEngineImpl implements GameEngine {
                 by: "skill",
               } as any,
             ];
+            // knowledge 변경이 클라이언트 patch 에 반영되도록 표시
+            markStateChanged(ctx.privateUpdates, ps);
           }
 
           const global = appendLogItem(this.state.log, {

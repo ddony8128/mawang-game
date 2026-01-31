@@ -98,10 +98,10 @@ export function HowToPlayPage() {
           <Section title="🃏 카드 시스템">
             <div className="space-y-4">
               <div className="text-sm text-muted-foreground mb-4">
-                <p>• 게임 시작 시 카드 1장 획득</p>
-                <p>• 이후 3분마다 카드 1장 획득</p>
-                <p>• 손패 제한: 최대 4장</p>
-              </div>
+              <p>• 게임 시작 시 카드 1장 획득</p>
+              <p>• 이후 2분마다 카드 1장 획득</p>
+              <p>• 손패 제한: 최대 4장</p>
+            </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <CardInfo

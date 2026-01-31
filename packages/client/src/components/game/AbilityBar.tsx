@@ -31,7 +31,9 @@ export default function AbilityBar({
                 ? "사망 상태에서는 능력을 사용할 수 없습니다"
                 : disabledReason === "mustDiscard"
                   ? "먼저 카드를 버려야 능력을 사용할 수 있습니다"
-                  : "겁주기 상태로 능력을 사용할 수 없습니다"}
+                  : disabledReason === "intimidated"
+                    ? "겁주기 상태로 능력을 사용할 수 없습니다"
+                    : "현재는 능력을 사용할 수 없습니다"}
             </span>
           )}
         </div>

@@ -58,12 +58,38 @@ authRouter.post("/", async (req, res) => {
       } else if (room) {
         // 재접속은 "게임 중인 방" 에 대해서만 허용한다.
         if (room.phase === "game") {
+          // 다만, 실제 게임이 종료된 상태라면 메인 화면에서 대기실로 이동해야 하므로
+          // 마지막 게임 state 를 확인해 running/ended 를 구분한다.
+          let reconnectPhase: "lobby" | "game" = "game";
+          try {
+            const { data: gameRows, error: gameError } = await supabase
+              .from("games")
+              .select("state")
+              .eq("room_id", room.id as string)
+              .order("seq", { ascending: false })
+              .limit(1);
+
+            if (gameError) {
+              // eslint-disable-next-line no-console
+              console.error("[supabase][auth games] error:", gameError);
+            } else if (gameRows && gameRows.length > 0) {
+              const lastState = gameRows[0].state as "running" | "ended" | "aborted";
+              // running 이 아니면(ended/aborted) 클라이언트는 대기실로 보내기 위해 phase 를 lobby 로 내려준다.
+              if (lastState !== "running") {
+                reconnectPhase = "lobby";
+              }
+            }
+          } catch (errGames) {
+            // eslint-disable-next-line no-console
+            console.error("[authRouter] unexpected games query error:", errGames);
+          }
+
           reconnect = {
             available: true,
             roomId: room.id as string,
             gameId: null,
             roomTitle: room.title as string,
-            phase: "game",
+            phase: reconnectPhase,
             note: null,
           };
         } else {

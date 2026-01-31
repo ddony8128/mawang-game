@@ -24,7 +24,7 @@ function getDeviceIdHeader(req) {
 // GDD 기반 기본 게임 설정 (document/ServerStateModel 3. GameSettings)
 const DEFAULT_GAME_SETTINGS = {
     // 카드/드로우
-    drawIntervalSec: 180, // 3분
+    drawIntervalSec: 120, // 2분
     bombDelaySec: 300, // 5분
     handLimit: 4,
     // 마왕
@@ -209,6 +209,31 @@ exports.roomsRouter.post("/:roomId/join", async (req, res) => {
         // eslint-disable-next-line no-console
         console.error("[roomsRouter][POST /rooms/:roomId/join] unexpected error:", err);
         (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to join room", 500);
+    }
+});
+// 3.4 POST /rooms/{roomId}/leave
+// - 현재 방에서 나가면서 room_players.is_in_room 을 false 로 설정한다.
+// - 호스트/비호스트 공통. 호스트가 나간다고 해서 방을 자동 삭제하지는 않는다(삭제는 DELETE 로 명시적으로 처리).
+exports.roomsRouter.post("/:roomId/leave", auth_1.requireRoomAuth, async (req, res) => {
+    const roomId = req.auth.roomId;
+    const roomPlayerId = req.auth.roomPlayerId;
+    try {
+        const { error } = await supabase_1.supabase
+            .from("room_players")
+            .update({ is_in_room: false, is_ready: false })
+            .eq("id", roomPlayerId)
+            .eq("room_id", roomId);
+        if (error) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][leave room update room_players] error:", error);
+            return (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to leave room", 500);
+        }
+        (0, apiResponse_1.sendOk)(res, { left: true });
+    }
+    catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[roomsRouter][POST /rooms/:roomId/leave] unexpected error:", err);
+        (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to leave room", 500);
     }
 });
 // 4.1 GET /rooms/{roomId}/poll
@@ -441,6 +466,16 @@ exports.roomsRouter.post("/:roomId/start", auth_1.requireRoomAuth, auth_1.requir
 exports.roomsRouter.delete("/:roomId", auth_1.requireRoomAuth, auth_1.requireHost, async (req, res) => {
     const roomId = req.auth.roomId;
     try {
+        // 방을 삭제하기 전에, 해당 방의 room_players 를 모두 is_in_room=false 로 설정한다.
+        const { error: rpError } = await supabase_1.supabase
+            .from("room_players")
+            .update({ is_in_room: false })
+            .eq("room_id", roomId)
+            .eq("is_in_room", true);
+        if (rpError) {
+            // eslint-disable-next-line no-console
+            console.error("[supabase][delete room update room_players] error:", rpError);
+        }
         const { error } = await supabase_1.supabase.from("rooms").delete().eq("id", roomId);
         if (error) {
             // eslint-disable-next-line no-console

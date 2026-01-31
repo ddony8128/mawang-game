@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import {
   apiDeleteRoom,
+  apiLeaveRoom,
   apiPatchRoomSettings,
   apiPollRoom,
   apiReadyRoom,
@@ -76,7 +77,7 @@ export function LobbyPage() {
   const [roomTitle, setRoomTitle] = useState<string>("마왕 잡으러 갈 사람!");
 
   const [settings, setSettings] = useState<RoomSettings>({
-    cardDrawInterval: 3,
+    cardDrawInterval: 2,
     bombTimer: 5,
     handLimit: 4,
     fearKingReviveHp: 3,
@@ -237,7 +238,7 @@ export function LobbyPage() {
                 className="flex-1 h-10 justify-center gap-1"
               >
                 <DoorClosed className="w-4 h-4" />
-                <span>방 삭제</span>
+                <span>방 나가기</span>
               </Button>
               <Button
                 variant="secondary"
@@ -250,13 +251,32 @@ export function LobbyPage() {
               </Button>
             </div>
           ) : (
-            <div className="mt-3">
+            <div className="mt-3 space-y-2">
               <Button
                 variant={isReady ? "outline" : "gold"}
                 className="w-full h-10"
                 onClick={handleToggleReady}
               >
                 {isReady ? "준비 취소" : "준비 완료"}
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full h-10 justify-center gap-1"
+                onClick={async () => {
+                  if (!roomId) {
+                    navigate("/");
+                    return;
+                  }
+                  try {
+                    await apiLeaveRoom(roomId);
+                  } catch (err) {
+                    console.error("failed to leave room", err);
+                  }
+                  navigate("/");
+                }}
+              >
+                <DoorClosed className="w-4 h-4" />
+                <span>방 나가기</span>
               </Button>
             </div>
           )}
@@ -731,7 +751,7 @@ function SettingSelect({
 function fromApiSettings(api: ApiRoomSettings | undefined): RoomSettings {
   if (!api) {
     return {
-      cardDrawInterval: 3,
+      cardDrawInterval: 2,
       bombTimer: 5,
       handLimit: 4,
       fearKingReviveHp: 3,
@@ -745,7 +765,7 @@ function fromApiSettings(api: ApiRoomSettings | undefined): RoomSettings {
     };
   }
   return {
-    cardDrawInterval: Math.round((api.drawIntervalSec ?? 180) / 60),
+    cardDrawInterval: Math.round((api.drawIntervalSec ?? 120) / 60),
     bombTimer: Math.round((api.bombDelaySec ?? 300) / 60),
     handLimit: api.handLimit ?? 4,
     fearKingReviveHp: api.fearReviveHp ?? 3,

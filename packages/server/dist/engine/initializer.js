@@ -105,7 +105,8 @@ async function createInitialSnapshotForRoom(roomId) {
     }
     const rawSettings = gameRow.settings ?? {};
     const settings = {
-        drawIntervalSec: rawSettings.drawIntervalSec ?? 180,
+        // 기본 드로우 주기를 2분(120초)로 설정
+        drawIntervalSec: rawSettings.drawIntervalSec ?? 120,
         bombDelaySec: rawSettings.bombDelaySec ?? 300,
         handLimit: rawSettings.handLimit ?? 4,
         fearReviveHp: rawSettings.fearReviveHp ?? 3,
@@ -293,7 +294,7 @@ async function createInitialSnapshotForRoom(roomId) {
                 : {},
         };
     }
-    // 악의 하수인에게 마왕 정체 / 레이드 정보 로그
+    // 악의 하수인에게 마왕 정체 / 레이드 정보 로그 + knowledge 세팅
     const mawangPlayer = players[mawangId];
     const heroRolesInGame = Array.from(heroRolesPresent);
     const civilRolesInGame = Array.from(civilRolesPresent);
@@ -317,6 +318,23 @@ async function createInitialSnapshotForRoom(roomId) {
                 },
                 modal: true,
             });
+            // 참모는 마왕의 팀/역할 정보를 사전에 알고 있다.
+            const prev = ps.knowledge.knownByTarget[mawangPlayer.identity.playerId] ?? [];
+            ps.knowledge.knownByTarget[mawangPlayer.identity.playerId] = [
+                ...prev,
+                {
+                    kind: "team",
+                    team: mawangPlayer.team,
+                    obtainedAtMs: nowMs,
+                    by: "skill",
+                },
+                {
+                    kind: "role",
+                    role: mawangPlayer.role,
+                    obtainedAtMs: nowMs,
+                    by: "skill",
+                },
+            ];
         }
         else if (ps.role === "fallen") {
             // 타락자: 마왕 정체만 알고 시작 (용사 구성은 모름)
@@ -331,6 +349,23 @@ async function createInitialSnapshotForRoom(roomId) {
                 },
                 modal: true,
             });
+            // 타락자도 마왕의 팀/역할 정보를 사전에 알고 있다.
+            const prev = ps.knowledge.knownByTarget[mawangPlayer.identity.playerId] ?? [];
+            ps.knowledge.knownByTarget[mawangPlayer.identity.playerId] = [
+                ...prev,
+                {
+                    kind: "team",
+                    team: mawangPlayer.team,
+                    obtainedAtMs: nowMs,
+                    by: "skill",
+                },
+                {
+                    kind: "role",
+                    role: mawangPlayer.role,
+                    obtainedAtMs: nowMs,
+                    by: "skill",
+                },
+            ];
         }
     }
     // 정신병자 fake role/team/side 설정 (보여지는 용사 역할)

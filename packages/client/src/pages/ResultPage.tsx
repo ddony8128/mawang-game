@@ -123,11 +123,6 @@ export function ResultPage() {
             <h1 className="text-2xl font-black text-gradient-gold">
               이번 판이 종료되었습니다
             </h1>
-            {roomId && (
-              <p className="text-xs text-muted-foreground/70">
-                roomId: <span className="font-mono">{roomId}</span>
-              </p>
-            )}
           </div>
         </div>
 
@@ -222,9 +217,15 @@ export function ResultPage() {
           <Button
             variant="gold"
             className="w-full"
-            onClick={() => navigate("/rooms")}
+            onClick={() => {
+              if (roomId) {
+                navigate(`/room/${roomId}/lobby`);
+              } else {
+                navigate("/rooms");
+              }
+            }}
           >
-            대기 중인 다른 방 보기
+            대기실로 돌아가기
           </Button>
           <Button
             variant="outline"
@@ -232,7 +233,7 @@ export function ResultPage() {
             onClick={() => navigate("/")}
           >
             <Home className="w-4 h-4 mr-2" />
-            메인으로 돌아가기
+            방 나가기
           </Button>
         </div>
       </div>

@@ -34,6 +34,7 @@ import { wsClient } from "@/api/ws";
 import { useClientStore } from "@/stores/clientStore";
 import { useFoggedGameStore } from "@/stores/foggedGameStore";
 import { useGameResultStore } from "@/stores/resultStore";
+import { useUIStore } from "@/stores/uiStore";
 import type { FoggedGameState } from "@/types/foggedGame";
 import { Button } from "@/components/ui/button";
 
@@ -117,6 +118,8 @@ export function GamePage() {
   const [selectedFakeRole, setSelectedFakeRole] = useState<RoleKey | null>(null);
 
   const setEndState = useGameResultStore((s) => s.setEndState);
+  const uiStore = useUIStore();
+  const [hasShownRoleIntro, setHasShownRoleIntro] = useState(false);
 
   // FoggedGameState → UiGameState 매핑
   useEffect(() => {
@@ -126,6 +129,86 @@ export function GamePage() {
       prev === "connected" ? prev : "connected",
     );
   }, [foggedState, roomId]);
+
+  // 게임 시작 시 역할 소개 모달 (당신은 ~~입니다 / 역할 설명 / 능력 안내)
+  useEffect(() => {
+    if (!gameState || hasShownRoleIntro) return;
+
+    const me = gameState.players.find((p) => p.id === gameState.myPlayerId);
+    if (!me || !me.role) return;
+
+    const roleKey = me.role.id as RoleKey;
+    const roleName = me.role.name;
+
+    const introMap: Record<
+      RoleKey,
+      { objective: string }
+    > = {
+      mawang_fear: {
+        objective: "당신은 악 팀의 보스입니다. 용사와 시민을 모두 제거하면 승리합니다.",
+      },
+      mawang_troll: {
+        objective: "당신은 악 팀의 보스입니다. 집념으로 버티며 용사와 시민을 모두 제거하면 승리합니다.",
+      },
+      aide: {
+        objective: "당신은 악 팀의 참모입니다. 마왕을 지키고 용사들을 무너뜨리면 승리합니다.",
+      },
+      fallen: {
+        objective: "당신은 타락한 용사입니다. 겉으로는 용사처럼 행동하지만, 실은 악 팀과 함께 승리합니다.",
+      },
+      parryman: {
+        objective: "당신은 방어형 용사입니다. 아군을 지키며 마왕을 쓰러뜨리면 승리합니다.",
+      },
+      slayer: {
+        objective: "당신은 공격형 용사입니다. 필살기를 활용해 마왕을 처치하면 승리합니다.",
+      },
+      sage: {
+        objective: "당신은 정보형 용사입니다. 돋보기와 지식을 활용해 마왕과 배신자의 정체를 밝혀내야 합니다.",
+      },
+      healer: {
+        objective: "당신은 지원형 용사입니다. 아군을 치유하며 마왕을 쓰러뜨리면 승리합니다.",
+      },
+      weakling: {
+        objective: "당신은 허약한 시민입니다. 살아남으면서 아군을 도와 마왕을 쓰러뜨리면 승리합니다.",
+      },
+      coward: {
+        objective: "당신은 겁쟁이 시민입니다. 카드 사용이 자주 실패하니 신중하게 행동해야 합니다.",
+      },
+      madman: {
+        objective: "당신은 정신이 불안정한 시민입니다. 가짜 용사 능력을 흉내 내며 판을 교란합니다.",
+      },
+      experiment_host: {
+        objective: "당신은 실험체입니다. 사망 시 악 팀에게 큰 이득을 주니 생존이 중요합니다.",
+      },
+    };
+
+    const objective = introMap[roleKey]?.objective ?? "";
+
+    const abilityLines =
+      me.role.abilities.length > 0
+        ? me.role.abilities
+            .map((a) => `- ${a.name}: ${a.description}`)
+            .join("\n")
+        : "";
+
+    const messageParts: string[] = [];
+    messageParts.push(`당신은 ${roleName}입니다.`);
+    if (objective) {
+      messageParts.push(objective);
+    }
+    if (abilityLines) {
+      messageParts.push(`능력:\n${abilityLines}`);
+    }
+
+    uiStore.pushModal({
+      id: `role_intro_${roomId ?? "unknown"}_${Date.now()}`,
+      title: `당신은 ${roleName}입니다`,
+      message: messageParts.join("\n\n"),
+      createdAtMs: Date.now(),
+    });
+
+    setHasShownRoleIntro(true);
+  }, [gameState, hasShownRoleIntro, roomId, uiStore]);
 
   // WS 연결 시작 (gameState 가 아직 없어도 roomId / session 만 있으면 바로 연결)
   useEffect(() => {
@@ -219,9 +302,8 @@ export function GamePage() {
     const me = gameState.players.find((p) => p.id === gameState.myPlayerId);
     if (!me) return;
     const needDiscard = me.hand.length > gameState.settings.handLimit;
-    if (needDiscard) {
-      setShowDiscard(true);
-    }
+    // 현재 손패 상태에 따라 버리기 모달 열림 여부를 항상 동기화한다.
+    setShowDiscard(needDiscard);
   }, [gameState]);
 
   // 카드 드로우/상태(폭탄, 겁주기, 무적) 타이머 (gameState 가 null 인 경우를 방어)
@@ -233,14 +315,11 @@ export function GamePage() {
         const nextPlayers = prev.players.map((p) => {
           const nextStatus = { ...p.status };
 
-          if (nextStatus.hasBomb) {
-            nextStatus.hasBomb = {
-              ...nextStatus.hasBomb,
-              remainingSeconds: Math.max(
-                0,
-                nextStatus.hasBomb.remainingSeconds - 1,
-              ),
-            };
+          if (nextStatus.bombs) {
+            nextStatus.bombs = nextStatus.bombs.map((bomb) => ({
+              ...bomb,
+              remainingSeconds: Math.max(0, bomb.remainingSeconds - 1),
+            }));
           }
 
           if (nextStatus.isIntimidated) {
@@ -984,13 +1063,15 @@ function mapFoggedToUi(state: FoggedGameState, roomId: string): UiGameState {
 
     if (isMe) {
       const effects = state.me.effects;
-      const bomb = effects.find((e) => e.kind === "bomb");
-      if (bomb && "explodeAtMs" in bomb) {
-        const remainingSec = Math.max(
-          0,
-          Math.floor((bomb.explodeAtMs - nowMs) / 1000),
-        );
-        status.hasBomb = { remainingSeconds: remainingSec, damage: 2 };
+      const bombs = effects.filter((e) => e.kind === "bomb" && "explodeAtMs" in e);
+      if (bombs.length > 0) {
+        status.bombs = bombs.map((bomb) => {
+          const remainingSec = Math.max(
+            0,
+            Math.floor(((bomb as any).explodeAtMs - nowMs) / 1000),
+          );
+          return { id: (bomb as any).id, remainingSeconds: remainingSec, damage: 2 };
+        });
       }
 
       const feared = effects.find((e) => e.kind === "feared");
@@ -1081,7 +1162,7 @@ function mapFoggedToUi(state: FoggedGameState, roomId: string): UiGameState {
     ),
     gamePhase: state.meta.state === "running" ? "playing" : "ended",
     settings: {
-      cardDrawInterval: state.settings?.drawIntervalSec ?? 180,
+      cardDrawInterval: state.settings?.drawIntervalSec ?? 120,
       bombTimer: state.settings?.bombDelaySec ?? 300,
       handLimit: state.settings?.handLimit ?? 4,
       fearKingReviveHp: state.settings?.fearReviveHp ?? 3,

@@ -119,5 +119,18 @@ export async function recordGameEnd(endState: GameEndState) {
       }
     }
   }
+
+  // 게임이 종료되면 해당 방의 phase 를 lobby 로 되돌린다.
+  if (endState.roomId) {
+    const { error: roomError } = await supabase
+      .from("rooms")
+      .update({ phase: "lobby" })
+      .eq("id", endState.roomId);
+
+    if (roomError) {
+      // eslint-disable-next-line no-console
+      console.error("[supabase][recordGameEnd] update rooms.phase error:", roomError);
+    }
+  }
 }
 

@@ -465,8 +465,24 @@ class RoomRuntimeManager {
                         return;
                     }
                 }
-                // 엔진 스냅샷이 있으면 fogged snapshot 전송
                 if (snapshot) {
+                    // 이미 종료된 게임에 대한 ready 요청인 경우,
+                    // fogged snapshot 대신 endState 를 바로 내려준다.
+                    if (snapshot.meta.state === "ended" && snapshot.endState) {
+                        const endMsg = {
+                            type: "end",
+                            payload: { endState: snapshot.endState },
+                        };
+                        try {
+                            socket.send(JSON.stringify(endMsg));
+                        }
+                        catch {
+                            // ignore
+                        }
+                        socket.close();
+                        return;
+                    }
+                    // 엔진 스냅샷이 있으면 fogged snapshot 전송
                     const fogged = (0, fogger_1.createFoggedState)(snapshot, verified.roomPlayerId);
                     const msgReady = {
                         type: "snapshot",
