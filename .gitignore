@@ -9,3 +9,6 @@ client/.env.*
 server/.env
 server/.env.*
 !server/.env.example
+
+# TypeScript incremental build cache
+*.tsbuildinfo

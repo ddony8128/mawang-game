@@ -16,6 +16,9 @@ class RoomRuntime {
     timerRegistry;
     connections = new Map();
     snapshot = null;
+    // 마지막으로 DB에 성공적으로 저장된 스냅샷 버전
+    // - snapshot.meta.snapshotVersion 이 이 값과 동일하면 주기 백업을 건너뛴다.
+    lastSavedSnapshotVersion = null;
     snapshotIntervalId;
     // 엔진 출력 처리 중 중복 호출을 막기 위한 플래그
     isFlushingEngineOutputs = false;
@@ -33,11 +36,21 @@ class RoomRuntime {
         this.snapshotIntervalId = setInterval(() => {
             if (!this.snapshot)
                 return;
+            const currentVersion = this.snapshot.meta.snapshotVersion;
+            // 스냅샷 버전이 이전에 저장된 버전과 동일하면 불필요한 백업을 건너뛴다.
+            if (this.lastSavedSnapshotVersion !== null &&
+                this.lastSavedSnapshotVersion === currentVersion) {
+                return;
+            }
             const gameId = this.snapshot.ids.gameId;
             void (0, gameSnapshotsRepo_1.saveSnapshot)({
                 gameId,
                 snapshot: this.snapshot,
-            }).catch((err) => {
+            })
+                .then(() => {
+                this.lastSavedSnapshotVersion = currentVersion;
+            })
+                .catch((err) => {
                 // eslint-disable-next-line no-console
                 console.error("[RoomRuntime] failed to save snapshot:", err);
             });
@@ -209,9 +222,11 @@ class RoomRuntime {
                             patch.players = publicPlayersPatch;
                         }
                         // nextDrawAtMs / nowMs / state 등 메타 정보는 공통
+                        // - nowMs 는 snapshot.timers.nowMs 대신 실제 서버 시각을 사용해
+                        //   클라이언트가 남은 카드 드로우 시간을 정확히 계산할 수 있게 한다.
                         patch.meta = {
                             state: snapshot.meta.state,
-                            nowMs: snapshot.timers.nowMs,
+                            nowMs: Date.now(),
                         };
                         patch.timers = {
                             nextDrawAtMs: snapshot.timers.nextDrawAtMs,

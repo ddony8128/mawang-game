@@ -3,6 +3,7 @@ import type { UiCard } from "@/types/game-ui";
 interface CardHandProps {
   cards: UiCard[];
   selectedCardId: string | null;
+  selectedCardIds?: string[]; // 다중 선택(돋보기 등) 지원용
   onSelectCard: (cardId: string | null) => void;
   disabled?: boolean;
 }
@@ -32,6 +33,7 @@ const cardColors: Record<
 export default function CardHand({
   cards,
   selectedCardId,
+  selectedCardIds,
   onSelectCard,
   disabled,
 }: CardHandProps) {
@@ -56,7 +58,9 @@ export default function CardHand({
         ) : (
           cards.map((card) => {
             const colors = cardColors[card.type];
-            const isSelected = card.id === selectedCardId;
+            const isSelected = selectedCardIds
+              ? selectedCardIds.includes(card.id)
+              : card.id === selectedCardId;
             return (
               <button
                 key={card.id}

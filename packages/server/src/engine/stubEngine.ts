@@ -154,6 +154,13 @@ export class GameEngineImpl implements GameEngine {
       delta,
     };
 
+    // 게임이 종료 상태라면 endState 를 한 번 내려준다.
+    // - checkEndCondition 에서 this.state.endState 를 설정하며,
+    //   WS 레이어(RoomRuntime)가 이 값을 받아 모든 플레이어에게 end 이벤트를 브로드캐스트한다.
+    if (this.state && this.state.meta.state === "ended" && this.state.endState) {
+      output.endState = this.state.endState;
+    }
+
     return output;
   }
 
@@ -845,6 +852,11 @@ export class GameEngineImpl implements GameEngine {
     actor.hand.splice(handIndex, 1);
     target.hand.push(card);
 
+    // 손패 변경이 발생했으므로, 양도자/수신자 모두에 대해
+    // me 서브트리를 다시 계산하도록 표시한다.
+    markStateChanged(ctx.privateUpdates, actor);
+    markStateChanged(ctx.privateUpdates, target);
+
     const now = this.getNowMs();
     const givenLog = appendLogItem(this.state.log, {
       atMs: now,
@@ -854,7 +866,8 @@ export class GameEngineImpl implements GameEngine {
         cardType: card.type,
         toPlayerId: target.identity.playerId,
       },
-      modal: false,
+      // 양도는 플레이어 입장에서 중요한 개인 이벤트이므로 모달 대상으로 처리한다.
+      modal: true,
     });
     const receivedLog = appendLogItem(this.state.log, {
       atMs: now,
@@ -864,7 +877,8 @@ export class GameEngineImpl implements GameEngine {
         cardType: card.type,
         fromPlayerId: actor.identity.playerId,
       },
-      modal: false,
+      // 카드 수신 역시 모달로 노출하여 인지 가능하게 한다.
+      modal: true,
     });
 
     const giverUpdate = ensurePrivateUpdate(
@@ -974,12 +988,17 @@ export class GameEngineImpl implements GameEngine {
         return false;
       }
       this.setCooldown(actor, key, now + cooldownMs);
+      // 쿨다운이 갱신되었으므로, 클라이언트의 me.cooldowns 를 재계산하도록 표시
+      markStateChanged(ctx.privateUpdates, actor);
       return true;
     };
 
     // 정신병자: 능력은 실제로 발동되지 않고, 사용된 것처럼만 처리
+    // - 다만 가짜 용사 능력의 쿨타임은 UI 에서 보이도록 fakeCooldowns 를 업데이트한다.
     if (this.state.players[actor.identity.playerId]?.role === "madman") {
       const nowMs = this.getNowMs();
+
+      // 1) 모달/로그: "능력을 사용했습니다" 만 보여준다.
       const logItem = appendLogItem(this.state.log, {
         atMs: nowMs,
         type: "PERSONAL_SKILL_USED",
@@ -995,6 +1014,48 @@ export class GameEngineImpl implements GameEngine {
         actor.identity.playerId,
       );
       update.logItems = [...(update.logItems ?? []), logItem];
+
+      // 2) 가짜 용사 능력의 쿨타임 갱신 (표시용)
+      //    - initializer 에서 fakeRole 에 따라 fakeCooldowns.skillKey 를 설정해두며,
+      //      여기서는 skillKey 에 대응하는 쿨타임을 적용해 readyAtMs 를 업데이트한다.
+      const madman = this.state.players[actor.identity.playerId];
+      if (madman && madman.fake) {
+        // skillKey 기준 쿨타임 매핑 (초 단위)
+        const cooldownBySkill: Record<string, number> = {
+          mawang_fear: 180,
+          traitor_beer: 180,
+          parry_shield: 180,
+          healer_heal: 180,
+          // 1회성/즉시형 스킬들은 쿨타임 0 (표시만)
+          slayer_ult: 0,
+          mawang_mask: 0,
+        };
+        const cdSec = cooldownBySkill[skillKey] ?? 0;
+        if (cdSec > 0) {
+          const cdMs = cdSec * 1000;
+          const readyAtMs = nowMs + cdMs;
+
+          if (!Array.isArray((madman.fake as any).fakeCooldowns)) {
+            (madman.fake as any).fakeCooldowns = [];
+          }
+
+          const fakeCooldowns = (madman.fake as any).fakeCooldowns as Array<{
+            skillKey: string;
+            readyAtMs: number;
+          }>;
+
+          const existing = fakeCooldowns.find((c) => c.skillKey === skillKey);
+          if (existing) {
+            existing.readyAtMs = readyAtMs;
+          } else {
+            fakeCooldowns.push({
+              skillKey,
+              readyAtMs,
+            } as any);
+          }
+        }
+      }
+
       return;
     }
 
@@ -1067,6 +1128,9 @@ export class GameEngineImpl implements GameEngine {
         },
       } as any);
 
+      // 효과가 새로 생겼으므로 클라이언트 me 상태를 재계산하도록 표시
+      markStateChanged(ctx.privateUpdates, actor);
+
       this.timerRegistry?.scheduleIn(durationMs, "EFFECT_EXPIRE", {
         playerId: actor.identity.playerId,
         effectKind: "shield",
@@ -1114,6 +1178,9 @@ export class GameEngineImpl implements GameEngine {
           untilMs,
         },
       } as any);
+
+      // 겁주기 효과가 새로 생겼으므로 대상 플레이어 me 상태를 재계산하도록 표시
+      markStateChanged(ctx.privateUpdates, target);
 
       this.timerRegistry?.scheduleIn(durationMs, "EFFECT_EXPIRE", {
         playerId: target.identity.playerId,
@@ -1192,8 +1259,10 @@ export class GameEngineImpl implements GameEngine {
         audience: { kind: "player", playerId: actor.identity.playerId },
         payload: {
           skillKey: "mawang_mask",
+          fakeRole,
         },
-        modal: false,
+        // 가면놀이는 플레이어에게 중요한 정보이므로 모달로 노출
+        modal: true,
       });
       const update = ensurePrivateUpdate(
         ctx.privateUpdates,
@@ -1797,7 +1866,9 @@ export class GameEngineImpl implements GameEngine {
     if (!this.state) return Math.random();
     const { rng } = this.state;
     const hash = crypto.createHash("sha256");
-    hash.update(rng.seed);
+    // rng.seed 가 DB에서 number 로 역직렬화되는 경우가 있으므로,
+    // 항상 문자열로 변환해 해시 입력으로 사용한다.
+    hash.update(String(rng.seed));
     hash.update(String(rng.counter));
     const digest = hash.digest();
     const a = digest.readUInt32BE(0);

@@ -24,6 +24,8 @@ export type UiPlayerStatus = {
   hasBomb?: { remainingSeconds: number; damage: number };
   isIntimidated?: { remainingSeconds: number };
   isInvincible?: { remainingSeconds: number };
+  // 분탕의 집념(일시 부활) 상태
+  trollStubborn?: { remainingSeconds: number };
 };
 
 export type UiKnownInfo = {

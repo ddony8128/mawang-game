@@ -13,6 +13,13 @@ import GameDrawer from "@/components/game/GameDrawer";
 import CardEffectModal from "@/components/game/CardEffectModal";
 import GameResultModal from "@/components/game/GameResultModal";
 import PlayerRevealModal from "@/components/game/PlayerRevealModal";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import type {
   UiAbility,
   UiCard,
@@ -22,6 +29,7 @@ import type {
   UiRole,
   UiTeam,
 } from "@/types/game-ui";
+import type { SkillKey, RoleKey } from "@/types/identity";
 import { wsClient } from "@/api/ws";
 import { useClientStore } from "@/stores/clientStore";
 import { useFoggedGameStore } from "@/stores/foggedGameStore";
@@ -96,9 +104,15 @@ export function GamePage() {
     isWinner: boolean;
   }[]>([]);
 
+  const [selectedAbilityId, setSelectedAbilityId] = useState<SkillKey | null>(null);
+
   const [connectionStatus, setConnectionStatus] = useState<
     "connecting" | "connected" | "reconnecting" | "error"
   >("connecting");
+
+  // 분탕의 마왕 가면놀이(1회성) 사용 시, 위장할 역할을 선택하기 위한 모달 상태
+  const [maskSelectOpen, setMaskSelectOpen] = useState(false);
+  const [selectedFakeRole, setSelectedFakeRole] = useState<RoleKey | null>(null);
 
   const setEndState = useGameResultStore((s) => s.setEndState);
 
@@ -207,17 +221,71 @@ export function GamePage() {
     }
   }, [gameState]);
 
-  // 카드 드로우 타이머 (gameState 가 null 인 경우를 방어)
+  // 카드 드로우/상태(폭탄, 겁주기, 무적) 타이머 (gameState 가 null 인 경우를 방어)
   useEffect(() => {
     const interval = setInterval(() => {
       setGameState((prev) => {
         if (!prev) return prev;
+
+        const nextPlayers = prev.players.map((p) => {
+          const nextStatus = { ...p.status };
+
+          if (nextStatus.hasBomb) {
+            nextStatus.hasBomb = {
+              ...nextStatus.hasBomb,
+              remainingSeconds: Math.max(
+                0,
+                nextStatus.hasBomb.remainingSeconds - 1,
+              ),
+            };
+          }
+
+          if (nextStatus.isIntimidated) {
+            const nextSec = Math.max(
+              0,
+              nextStatus.isIntimidated.remainingSeconds - 1,
+            );
+            nextStatus.isIntimidated =
+              nextSec > 0
+                ? { ...nextStatus.isIntimidated, remainingSeconds: nextSec }
+                : undefined;
+          }
+
+          if (nextStatus.isInvincible) {
+            const nextSec = Math.max(
+              0,
+              nextStatus.isInvincible.remainingSeconds - 1,
+            );
+            nextStatus.isInvincible =
+              nextSec > 0
+                ? { ...nextStatus.isInvincible, remainingSeconds: nextSec }
+                : undefined;
+          }
+
+          if (nextStatus.trollStubborn) {
+            const nextSec = Math.max(
+              0,
+              nextStatus.trollStubborn.remainingSeconds - 1,
+            );
+            nextStatus.trollStubborn =
+              nextSec > 0
+                ? { ...nextStatus.trollStubborn, remainingSeconds: nextSec }
+                : undefined;
+          }
+
+          return {
+            ...p,
+            status: nextStatus,
+          };
+        });
+
         return {
           ...prev,
           nextCardDrawInSeconds: Math.max(
             0,
             prev.nextCardDrawInSeconds - 1,
           ),
+          players: nextPlayers,
         };
       });
     }, 1000);
@@ -247,11 +315,52 @@ export function GamePage() {
 
   const mustDiscard =
     myPlayer.hand.length > gameState.settings.handLimit;
+  const isDead = myPlayer.isDead;
+
+  // 돋보기 다중 선택을 위한 선택된 카드 ID 목록 (최대 3장)
+  const [selectedMagnifierIds, setSelectedMagnifierIds] = useState<string[]>([]);
+
+  const selectedAbility =
+    myPlayer.role?.abilities.find((a) => a.id === selectedAbilityId) || null;
+
+  // 카드 선택 로직 (돋보기는 최대 3장까지 다중 선택 허용)
+  const handleSelectCard = (cardId: string | null) => {
+    if (!cardId) {
+      setSelectedCardId(null);
+      setSelectedMagnifierIds([]);
+      return;
+    }
+
+    const card = myPlayer.hand.find((c) => c.id === cardId);
+    if (!card) return;
+
+    if (card.type !== "magnifier") {
+      // 다른 종류 카드를 누르면 그 카드만 선택, 돋보기 다중 선택은 초기화
+      setSelectedCardId(cardId);
+      setSelectedMagnifierIds([]);
+      return;
+    }
+
+    // 돋보기: 최대 3장까지 토글 선택
+    setSelectedCardId(cardId);
+    setSelectedMagnifierIds((prev) => {
+      if (prev.includes(cardId)) {
+        // 다시 누르면 선택 해제
+        return prev.filter((id) => id !== cardId);
+      }
+      if (prev.length >= 3) {
+        // 3장을 이미 선택했다면 가장 오래된 것 하나를 빼고 새 것 추가
+        return [...prev.slice(1), cardId];
+      }
+      return [...prev, cardId];
+    });
+  };
 
   // 카드 사용 가능 여부
   const canUseCard = () => {
     if (!selectedCard) return false;
     if (connectionStatus !== "connected") return false;
+    if (isDead) return false;
     if (mustDiscard) return false;
     if (myPlayer.status.isIntimidated) return false;
     if (selectedCard.type === "beer") return true;
@@ -262,6 +371,7 @@ export function GamePage() {
   const canTransferCard = () => {
     if (!selectedCard) return false;
     if (connectionStatus !== "connected") return false;
+    if (isDead) return false;
     if (mustDiscard) return false;
     if (myPlayer.status.isIntimidated) return false;
     return selectedPlayerId !== null;
@@ -303,6 +413,7 @@ export function GamePage() {
     });
 
     setSelectedCardId(null);
+    setSelectedMagnifierIds([]);
     setSelectedPlayerId(null);
   };
 
@@ -322,6 +433,7 @@ export function GamePage() {
     });
 
     setSelectedCardId(null);
+    setSelectedMagnifierIds([]);
     setSelectedPlayerId(null);
   };
 
@@ -337,20 +449,11 @@ export function GamePage() {
 
   const handleUseAbility = (abilityId: string) => {
     if (connectionStatus !== "connected") return;
-    const base = buildActionBase();
-    if (!base) return;
 
-    const skillKey = abilityId as any;
-
-    wsClient.sendAction({
-      ...base,
-      actionType: "ability",
-      data: {
-        skillKey,
-        targetPlayerId: selectedPlayerId,
-        clientNowMs: Date.now(),
-      },
-    });
+    // 능력 버튼 클릭은 "선택/해제"만 담당한다.
+    setSelectedAbilityId((prev) =>
+      prev === (abilityId as SkillKey) ? null : (abilityId as SkillKey),
+    );
   };
 
   const handleDiscard = (cardId: string) => {
@@ -376,6 +479,56 @@ export function GamePage() {
   };
 
   const isIntimidated = !!myPlayer.status.isIntimidated;
+
+  const abilityRequiresTarget = (abilityId: SkillKey | null): boolean => {
+    if (!abilityId) return false;
+    // 규칙서 기준: 대상이 필요한 능력들
+    return (
+      abilityId === "mawang_fear" || // 겁주기
+      abilityId === "traitor_beer" || // 술자리 권유
+      abilityId === "healer_heal" || // 회복 마법
+      abilityId === "slayer_ult" // 짱쎈 필살기
+    );
+  };
+
+  const canUseSelectedAbility = () => {
+    if (!selectedAbility) return false;
+    if (connectionStatus !== "connected") return false;
+    if (isDead) return false;
+    if (mustDiscard) return false;
+    if (myPlayer.status.isIntimidated) return false;
+    if (abilityRequiresTarget(selectedAbilityId) && !selectedPlayerId) {
+      return false;
+    }
+    return true;
+  };
+
+  const handleConfirmAbilityUse = () => {
+    if (!canUseSelectedAbility()) return;
+    if (!selectedAbilityId) return;
+
+    // 분탕의 마왕: 가면놀이는 위장 역할 선택 모달을 먼저 띄운다.
+    if (selectedAbilityId === "mawang_mask") {
+      setSelectedFakeRole(null);
+      setMaskSelectOpen(true);
+      return;
+    }
+
+    const base = buildActionBase();
+    if (!base) return;
+
+    wsClient.sendAction({
+      ...base,
+      actionType: "ability",
+      data: {
+        skillKey: selectedAbilityId,
+        targetPlayerId: selectedPlayerId,
+        clientNowMs: Date.now(),
+      },
+    });
+
+    setSelectedAbilityId(null);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-dark flex flex-col">
@@ -444,24 +597,53 @@ export function GamePage() {
         {/* 능력 바 */}
         <AbilityBar
           abilities={myPlayer.role?.abilities || []}
-          onUseAbility={handleUseAbility}
-          disabled={isIntimidated || mustDiscard}
+          selectedAbilityId={selectedAbilityId}
+          onSelectAbility={handleUseAbility}
+          disabled={isDead || isIntimidated || mustDiscard}
         />
+        <div className="px-4 py-1 border-t border-border/30 bg-card/95">
+          <div className="max-w-3xl mx-auto flex items-center justify-between text-xs">
+            <span className="text-muted-foreground truncate mr-2">
+              {selectedAbility
+                ? `선택된 능력: ${selectedAbility.name}${
+                    abilityRequiresTarget(selectedAbilityId)
+                      ? " (대상을 선택한 뒤 사용)"
+                      : ""
+                  }`
+                : "사용할 능력을 선택한 뒤, 대상이 필요한 경우 플레이어를 선택하고 사용 버튼을 누르세요."}
+            </span>
+            <Button
+              size="sm"
+              variant="gold"
+              disabled={!canUseSelectedAbility()}
+              onClick={handleConfirmAbilityUse}
+            >
+              사용
+            </Button>
+          </div>
+        </div>
 
         {/* 카드 패 */}
         <CardHand
           cards={myPlayer.hand}
           selectedCardId={selectedCardId}
-          onSelectCard={setSelectedCardId}
-          disabled={isIntimidated || mustDiscard}
+          selectedCardIds={
+            selectedMagnifierIds.length > 0
+              ? selectedMagnifierIds
+              : selectedCardId
+                ? [selectedCardId]
+                : []
+          }
+          onSelectCard={handleSelectCard}
+          disabled={isDead || isIntimidated || mustDiscard}
         />
 
-        {/* 카드 액션 */}
-        {selectedCard && !mustDiscard && (
+        {/* 카드 액션 (사망/겁주기 상태이거나 버리기 강제 시에는 완전히 비활성화) */}
+        {selectedCard && !isDead && !mustDiscard && !isIntimidated && (
           <CardActions
             selectedCard={selectedCard}
             selectedPlayerName={selectedPlayer?.nickname || null}
-            allHandCards={myPlayer.hand}
+            selectedMagnifierIds={selectedMagnifierIds}
             onUseSingleCard={handleUseCard}
             onUseMagnifier={(ids, mode) => {
               const base = buildActionBase();
@@ -539,6 +721,92 @@ export function GamePage() {
         roomId={roomId || "test"}
         settings={gameState.settings}
       />
+
+      {/* 분탕의 마왕: 가면놀이 위장 역할 선택 모달 */}
+      <Dialog
+        open={maskSelectOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMaskSelectOpen(false);
+            setSelectedFakeRole(null);
+          }
+        }}
+      >
+        <DialogContent className="bg-card border-border/60 max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">
+              위장할 역할 선택
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              이번 게임 동안 돋보기에 보일 당신의 역할을 선택하세요. 한 번
+              선택하면 되돌릴 수 없습니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-3">
+            <p className="text-xs text-muted-foreground">
+              이 게임에 등장하는 모든 직업 중에서, 돋보기에 보일 당신의 가짜
+              역할을 선택하세요.
+            </p>
+            <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
+              {(Object.keys(ROLE_DISPLAY_NAME) as RoleKey[]).map((roleKey) => (
+                <Button
+                  key={roleKey}
+                  type="button"
+                  variant={
+                    selectedFakeRole === roleKey ? "gold" : "secondary"
+                  }
+                  className="w-full justify-center text-xs"
+                  onClick={() => setSelectedFakeRole(roleKey)}
+                >
+                  {ROLE_DISPLAY_NAME[roleKey] ?? roleKey}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setMaskSelectOpen(false);
+                setSelectedFakeRole(null);
+              }}
+            >
+              취소
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!selectedFakeRole || connectionStatus !== "connected"}
+              onClick={() => {
+                if (!selectedFakeRole) return;
+                const base = buildActionBase();
+                if (!base) return;
+                wsClient.sendAction({
+                  ...base,
+                  actionType: "ability",
+                  data: {
+                    skillKey: "mawang_mask",
+                    // 위장할 역할/팀/진영 정보
+                    fakeRole: selectedFakeRole,
+                    fakeTeam: "good",
+                    fakeSide: "hero",
+                    // 가면놀이 자체는 타겟이 필요 없으므로 null
+                    targetPlayerId: null,
+                    clientNowMs: Date.now(),
+                  },
+                });
+                setMaskSelectOpen(false);
+                setSelectedFakeRole(null);
+                setSelectedAbilityId(null);
+              }}
+            >
+              확인
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -738,6 +1006,16 @@ function mapFoggedToUi(state: FoggedGameState, roomId: string): UiGameState {
           Math.floor((shield.untilMs - nowMs) / 1000),
         );
         status.isInvincible = { remainingSeconds: remainingSec };
+      }
+
+      // 분탕의 집념(일시 부활) 상태
+      const stubborn = effects.find((e) => e.kind === "trollStubborn");
+      if (stubborn && "untilMs" in stubborn) {
+        const remainingSec = Math.max(
+          0,
+          Math.floor((stubborn.untilMs - nowMs) / 1000),
+        );
+        status.trollStubborn = { remainingSeconds: remainingSec };
       }
     }
 

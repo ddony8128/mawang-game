@@ -7,7 +7,7 @@ interface CardActionsProps {
   selectedPlayerName: string | null;
   canUse: boolean;
   canTransfer: boolean;
-  allHandCards: UiCard[];
+  selectedMagnifierIds?: string[];
   onUseSingleCard: () => void;
   onUseMagnifier: (
     ids: string[],
@@ -22,25 +22,13 @@ export default function CardActions({
   selectedPlayerName,
   canUse,
   canTransfer,
-  allHandCards,
+  selectedMagnifierIds,
   onUseSingleCard,
   onUseMagnifier,
   onTransferCard,
   onCancel,
 }: CardActionsProps) {
-  const magnifierCards =
-    selectedCard.type === "magnifier"
-      ? allHandCards.filter((c) => c.type === "magnifier")
-      : [];
-
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [error, setError] = useState(false);
-
-  const toggleMagnifier = (id: string) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  };
 
   const handleUseClick = () => {
     if (selectedCard.type !== "magnifier") {
@@ -48,24 +36,36 @@ export default function CardActions({
       return;
     }
 
-    if (selectedIds.length === 2) {
-      onUseMagnifier(selectedIds, "magnifier2");
-      setSelectedIds([]);
+    // 돋보기는 손패에서 현재 선택된 돋보기들을 기준으로 2장 또는 3장을 사용한다.
+    const ids =
+      selectedMagnifierIds && selectedMagnifierIds.length > 0
+        ? selectedMagnifierIds
+        : [selectedCard.id];
+
+    // 현재 설계상 CardHand 에서 돋보기 다중 선택을 관리하므로,
+    // 여기서는 최소 2/3장 여부만 검증해서 잘못된 경우 빨간색 연출만 한다.
+    if (ids.length === 2) {
+      onUseMagnifier(ids, "magnifier2");
       setError(false);
-    } else if (selectedIds.length === 3) {
-      onUseMagnifier(selectedIds, "magnifier3");
-      setSelectedIds([]);
-      setError(false);
-    } else {
-      // 잘못된 조합: 빨갛게 표시하고 선택 초기화
-      setError(true);
-      setSelectedIds([]);
-      setTimeout(() => setError(false), 500);
+      return;
     }
+    if (ids.length === 3) {
+      onUseMagnifier(ids, "magnifier3");
+      setError(false);
+      return;
+    }
+
+    // 잘못된 조합(1장 등): 빨간색 연출
+    setError(true);
+    setTimeout(() => setError(false), 500);
   };
 
   return (
-    <div className="px-4 pb-3 pt-2 border-t border-border/30 bg-card/95">
+    <div
+      className={`px-4 pb-3 pt-2 border-t bg-card/95 ${
+        error ? "border-destructive" : "border-border/30"
+      }`}
+    >
       <div className="max-w-3xl mx-auto space-y-2">
         <div className="flex items-center justify-between text-xs">
           <div className="flex flex-col">
@@ -84,42 +84,6 @@ export default function CardActions({
             )}
           </div>
         </div>
-
-        {selectedCard.type === "magnifier" && magnifierCards.length > 0 && (
-          <div
-            className={`rounded-md border px-2 py-2 text-[11px] space-y-1 ${
-              error ? "border-destructive bg-destructive/5" : "border-border/40"
-            }`}
-          >
-            <div className="flex justify-between items-center">
-              <span className="text-muted-foreground">
-                사용할 돋보기를 선택하세요 (2장 또는 3장)
-              </span>
-              <span className="font-mono">
-                선택: {selectedIds.length}장 / 총 {magnifierCards.length}장
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-1 mt-1">
-              {magnifierCards.map((card) => {
-                const active = selectedIds.includes(card.id);
-                return (
-                  <button
-                    key={card.id}
-                    type="button"
-                    onClick={() => toggleMagnifier(card.id)}
-                    className={`px-2 py-1 rounded-full border text-[11px] ${
-                      active
-                        ? "bg-card-magnifier/20 border-card-magnifier text-card-magnifier-foreground"
-                        : "border-border/50 text-muted-foreground hover:border-card-magnifier/60"
-                    }`}
-                  >
-                    돋보기 #{card.id.slice(0, 4)}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         <div className="grid grid-cols-3 gap-2">
           <Button

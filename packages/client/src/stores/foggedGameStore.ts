@@ -52,7 +52,33 @@ export const useFoggedGameStore = create<FoggedGameStore>()(
     (set, get) => ({
       state: null,
       applySnapshot: (snap) => {
-        set({ state: snap });
+        // 초기 스냅샷 수신 시에도, 모든 로그 아이템에 대해
+        // 사람이 읽을 수 있는 modalUi 텍스트를 미리 채워 둔다.
+        const logItemsWithUi =
+          snap.log.items.map((item) => {
+            if (item.modalUi && item.modalUi.message) {
+              return item;
+            }
+            const template = buildModalTemplate(item);
+            return {
+              ...item,
+              modalUi: {
+                title: template.title,
+                message: template.message,
+                imageUrl: template.imageUrl,
+              },
+            };
+          }) ?? [];
+
+        set({
+          state: {
+            ...snap,
+            log: {
+              lastSeq: snap.log.lastSeq,
+              items: logItemsWithUi,
+            },
+          },
+        });
       },
       applyPatch: ({ baseSnapshotVersion, nextSnapshotVersion, patch, logItems }) => {
         const current = get().state;
@@ -99,9 +125,27 @@ export const useFoggedGameStore = create<FoggedGameStore>()(
         if (!current || items.length === 0) return;
 
         const existingIds = new Set(current.log.items.map((i) => i.id));
-        const newItems = items.filter((i) => !existingIds.has(i.id));
+        const rawNewItems = items.filter((i) => !existingIds.has(i.id));
 
-        if (newItems.length === 0) return;
+        if (rawNewItems.length === 0) return;
+
+        // 모든 신규 로그에 대해, 사람이 읽을 수 있는 modalUi 텍스트를 채워 넣는다.
+        // (모달로 띄우지 않는 로그라도, 규칙/로그 탭에서 자연어 문장을 재사용하기 위함)
+        const newItems = rawNewItems.map((item) => {
+          if (item.modalUi && item.modalUi.message) {
+            return item;
+          }
+
+          const template = buildModalTemplate(item);
+          return {
+            ...item,
+            modalUi: {
+              title: template.title,
+              message: template.message,
+              imageUrl: template.imageUrl,
+            },
+          };
+        });
 
         const mergedItems = [...current.log.items, ...newItems].sort(
           (a, b) => a.seq - b.seq,
@@ -117,21 +161,19 @@ export const useFoggedGameStore = create<FoggedGameStore>()(
           },
         });
 
-        // modal=true 인 항목은 UI 모달 큐에 적재하고,
-        // 동일한 내용의 modalUi 정보를 로그에도 함께 남긴다.
+        // modal=true 이거나, 특정 중요 이벤트(예: 맥주 사용)는 UI 모달 큐에 적재한다.
         const uiStore = useUIStore.getState();
         for (const item of newItems) {
-          if (!item.modal) continue;
+          const isBeerUse =
+            item.type === "PERSONAL_CARD_USED" &&
+            (item.payload as any)?.cardType === "beer";
 
-          const template = buildModalTemplate(item);
+          const shouldShowModal = item.modal || isBeerUse;
+          if (!shouldShowModal) continue;
 
-          // 로그 아이템 자체에도 사람이 읽을 수 있는 modalUi 를 채워 넣는다.
-          // (규칙/로그 탭에서 같은 내용을 재사용하기 위함)
-          (item as any).modalUi = {
-            title: template.title,
-            message: template.message,
-            imageUrl: template.imageUrl,
-          };
+          const template =
+            item.modalUi ??
+            buildModalTemplate(item);
 
           uiStore.pushModal({
             id: item.id,
@@ -279,12 +321,17 @@ function buildModalTemplate(
     case "PERSONAL_SKILL_USED": {
       const skillKey = typeof p.skillKey === "string" ? (p.skillKey as string) : "";
       switch (skillKey) {
-        case "mawang_mask":
+        case "mawang_mask": {
+          const fakeRoleKey =
+            typeof p.fakeRole === "string" ? (p.fakeRole as string) : null;
+          const fakeRoleName =
+            (fakeRoleKey && ROLE_NAME_MAP[fakeRoleKey]) || fakeRoleKey || "알 수 없는 역할";
           return {
             title: "가면놀이",
-            message: "이번 게임 동안 돋보기에 보일 역할을 위장했습니다.",
+            message: `이번 게임 동안 돋보기에 보일 자신의 역할을 “${fakeRoleName}”(으)로 위장했습니다.`,
             imageUrl: imgMawangMask,
           };
+        }
         case "mawang_fear":
           return {
             title: "겁주기",
@@ -360,18 +407,42 @@ function buildModalTemplate(
         message: "카드를 사용했습니다.",
       };
     }
-    case "PERSONAL_CARD_GIVEN":
+    case "PERSONAL_CARD_GIVEN": {
+      const cardType = p.cardType as string | undefined;
+      const cardName =
+        cardType === "magnifier"
+          ? "돋보기"
+          : cardType === "knife"
+            ? "칼"
+            : cardType === "bomb"
+              ? "폭탄"
+              : cardType === "beer"
+                ? "맥주"
+                : "카드";
       return {
         title: "카드 양도",
-        message: "다른 플레이어에게 카드를 건넸습니다.",
+        message: `${cardName} 카드를 다른 플레이어에게 건넸습니다.`,
         imageUrl: imgCardTransfer,
       };
-    case "PERSONAL_CARD_RECEIVED":
+    }
+    case "PERSONAL_CARD_RECEIVED": {
+      const cardType = p.cardType as string | undefined;
+      const cardName =
+        cardType === "magnifier"
+          ? "돋보기"
+          : cardType === "knife"
+            ? "칼"
+            : cardType === "bomb"
+              ? "폭탄"
+              : cardType === "beer"
+                ? "맥주"
+                : "카드";
       return {
         title: "카드 수신",
-        message: "다른 플레이어로부터 카드를 받았습니다.",
+        message: `${cardName} 카드를 다른 플레이어로부터 받았습니다.`,
         imageUrl: imgCardTransfer,
       };
+    }
     case "PERSONAL_HEALED":
       return {
         title: "회복 마법",

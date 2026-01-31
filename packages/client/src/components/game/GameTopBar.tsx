@@ -1,4 +1,4 @@
-import { Heart, Timer, Shield, Bomb, AlertTriangle, Circle } from "lucide-react";
+import { Heart, Timer, Shield, Bomb, AlertTriangle, Circle, Skull } from "lucide-react";
 import type { UiPlayer } from "@/types/game-ui";
 
 interface GameTopBarProps {
@@ -15,6 +15,9 @@ function GameTopBar({
   const minutes = Math.floor(nextCardDrawInSeconds / 60);
   const seconds = nextCardDrawInSeconds % 60;
   const bombSeconds = player.status.hasBomb?.remainingSeconds ?? 0;
+  const invincibleSeconds = player.status.isInvincible?.remainingSeconds ?? 0;
+  const intimidatedSeconds = player.status.isIntimidated?.remainingSeconds ?? 0;
+  const stubbornSeconds = player.status.trollStubborn?.remainingSeconds ?? 0;
 
   return (
     <header className="sticky top-0 z-40 bg-card/95 backdrop-blur-md border-b border-border/50 px-4 py-3">
@@ -47,13 +50,28 @@ function GameTopBar({
             {player.status.isInvincible && (
               <div className="flex items-center gap-1 text-xs text-hero bg-hero/10 border border-hero/40 rounded-full px-3 py-1">
                 <Shield className="w-4 h-4" />
-                무적
+                <span>무적</span>
+                <span className="font-mono">
+                  {formatCountdown(invincibleSeconds)}
+                </span>
               </div>
             )}
             {player.status.isIntimidated && (
               <div className="flex items-center gap-1 text-xs text-destructive bg-destructive/10 border border-destructive/40 rounded-full px-3 py-1">
                 <AlertTriangle className="w-4 h-4" />
-                겁주기
+                <span>겁주기</span>
+                <span className="font-mono">
+                  {formatCountdown(intimidatedSeconds)}
+                </span>
+              </div>
+            )}
+            {player.status.trollStubborn && (
+              <div className="flex items-center gap-1 text-xs text-evil bg-evil/10 border border-evil/40 rounded-full px-3 py-1">
+                <Skull className="w-4 h-4" />
+                <span>집념</span>
+                <span className="font-mono">
+                  {formatCountdown(stubbornSeconds)}
+                </span>
               </div>
             )}
             {player.status.hasBomb && (

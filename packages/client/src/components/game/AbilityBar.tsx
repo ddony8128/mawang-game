@@ -4,13 +4,15 @@ import type { UiAbility } from "@/types/game-ui";
 interface AbilityBarProps {
   abilities: UiAbility[];
   disabled?: boolean;
-  onUseAbility: (id: string) => void;
+  selectedAbilityId: string | null;
+  onSelectAbility: (id: string) => void;
 }
 
 export default function AbilityBar({
   abilities,
   disabled,
-  onUseAbility,
+  selectedAbilityId,
+  onSelectAbility,
 }: AbilityBarProps) {
   if (!abilities.length) return null;
 
@@ -40,9 +42,11 @@ export default function AbilityBar({
               <Button
                 key={ability.id}
                 size="sm"
-                variant="secondary"
+                variant={
+                  selectedAbilityId === ability.id ? "gold" : "secondary"
+                }
                 disabled={disabled || isOnCooldown || ability.used}
-                onClick={() => onUseAbility(ability.id)}
+                onClick={() => onSelectAbility(ability.id)}
                 className="shrink-0 min-w-[140px] justify-start"
               >
                 <div className="flex flex-col items-start">

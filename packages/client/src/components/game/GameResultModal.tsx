@@ -31,27 +31,27 @@ export default function GameResultModal({
 
   return (
     <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent className="bg-card border-border/70 max-w-xs text-center">
+      <DialogContent className="bg-card border-primary/50 max-w-lg px-8 py-6 text-center">
         <DialogHeader>
           <div className="flex flex-col items-center gap-2">
             <img
               src={imageUrl}
               alt={result.isVictory ? "승리" : "패배"}
-              className="w-28 h-28 object-contain mx-auto drop-shadow-lg"
+              className="w-56 h-56 object-contain mx-auto drop-shadow-lg"
             />
-            <DialogTitle className="text-2xl font-black text-gradient-gold">
+            <DialogTitle className="text-3xl font-black text-gradient-gold">
               {result.isVictory ? "승리!" : "패배..."}
             </DialogTitle>
           </div>
         </DialogHeader>
-        <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">
+        <div className="space-y-3">
+          <p className="text-base text-muted-foreground">
             {result.winningTeam === "good" ? "선 팀" : "악 팀"}의 승리
           </p>
-          <p className="text-sm">{result.reason}</p>
+          <p className="text-base">{result.reason}</p>
         </div>
-        <div className="mt-4 flex justify-center">
-          <Button variant="gold" size="sm" onClick={onConfirm}>
+        <div className="mt-6 flex justify-center">
+          <Button variant="gold" size="lg" onClick={onConfirm}>
             최종 결과 보기
           </Button>
         </div>

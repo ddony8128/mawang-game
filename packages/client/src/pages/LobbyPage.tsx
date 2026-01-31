@@ -218,32 +218,46 @@ export function LobbyPage() {
             </div>
           </div>
 
-          {/* Host Controls */}
-          {isHost && (
+          {/* Host / Player Controls */}
+          {isHost ? (
             <div className="flex gap-2 mt-3">
               <Button
                 variant="gold"
                 size="sm"
                 onClick={handleStartGame}
                 disabled={!canStart}
-                className="flex-1"
+                className="flex-[1.2] h-10"
               >
-                <Play className="w-4 h-4 mr-1" />
+                <Play className="w-4 h-4 mr-2" />
                 시작하기
               </Button>
               <Button
                 variant="destructive"
                 size="sm"
                 onClick={() => setShowCloseConfirm(true)}
+                className="flex-1 h-10 justify-center gap-1"
               >
                 <DoorClosed className="w-4 h-4" />
+                <span>방 삭제</span>
               </Button>
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={() => setShowSettings(true)}
+                className="flex-1 h-10 justify-center gap-1"
               >
                 <Settings className="w-4 h-4" />
+                <span>설정</span>
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-3">
+              <Button
+                variant={isReady ? "outline" : "gold"}
+                className="w-full h-10"
+                onClick={handleToggleReady}
+              >
+                {isReady ? "준비 취소" : "준비 완료"}
               </Button>
             </div>
           )}
@@ -310,21 +324,6 @@ export function LobbyPage() {
           )}
         </div>
       </ScrollArea>
-
-      {/* Footer - Ready Button (non-host) */}
-      {!isHost && (
-        <footer className="fixed bottom-0 left-0 right-0 p-4 bg-card/80 backdrop-blur-md border-t border-border/50">
-          <div className="max-w-2xl mx-auto">
-            <Button
-              variant={isReady ? "outline" : "gold"}
-              className="w-full"
-              onClick={handleToggleReady}
-            >
-              {isReady ? "준비 취소" : "준비 완료"}
-            </Button>
-          </div>
-        </footer>
-      )}
 
       {/* Settings Modal */}
       <Dialog open={showSettings} onOpenChange={setShowSettings}>

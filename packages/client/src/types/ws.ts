@@ -33,6 +33,10 @@ export type WsClientAbilityData = {
     | "healer_heal";
   targetPlayerId: string | null;
   clientNowMs: number;
+  // 분탕의 마왕 가면놀이라면 위장할 역할/팀/진영 정보 (옵션)
+  fakeRole?: string;
+  fakeTeam?: "good" | "evil";
+  fakeSide?: "hero" | "civil" | "evil" | "traitor";
 };
 
 export type WsClientCardUseData = {

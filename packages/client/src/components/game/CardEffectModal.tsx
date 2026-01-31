@@ -47,20 +47,20 @@ export default function CardEffectModal({
 
   return (
     <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent className="bg-card border-border/60 max-w-xs">
+      <DialogContent className="bg-card border-primary/50 max-w-lg px-8 py-6">
         <DialogHeader>
-          <DialogTitle className="text-lg font-bold text-center">
+          <DialogTitle className="text-xl font-bold text-center">
             카드 효과
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-2 text-sm text-center">
-          <p className="font-semibold">{card.name}</p>
-          <p className="text-muted-foreground whitespace-pre-line">
+        <div className="space-y-3 text-center">
+          <p className="font-semibold text-base">{card.name}</p>
+          <p className="text-base text-muted-foreground whitespace-pre-line">
             {description}
           </p>
         </div>
-        <div className="mt-4 flex justify-center">
-          <Button size="sm" variant="gold" onClick={onConfirm}>
+        <div className="mt-6 flex justify-center">
+          <Button size="lg" variant="gold" onClick={onConfirm}>
             확인
           </Button>
         </div>

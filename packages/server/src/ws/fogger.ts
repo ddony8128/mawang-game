@@ -96,7 +96,11 @@ export function createFoggedState(
     throw new Error(`viewer ${viewerId} not found in snapshot`);
   }
 
-  const nowMs = snapshot.timers.nowMs;
+  // 클라이언트의 남은 카드 드로우 시간 계산을 위해,
+  // snapshot.timers.nowMs 대신 서버 현재 시각을 사용한다.
+  // snapshot.timers.nextDrawAtMs 는 절대 시각이므로,
+  // nextDrawAtMs - nowMs 로 모든 클라이언트가 동일한 남은 시간을 계산할 수 있다.
+  const nowMs = Date.now();
 
   const players = snapshot.seating.map((pid) => {
     const p = snapshot.players[pid];

@@ -44,13 +44,13 @@ export default function PlayerRevealModal({
 }: PlayerRevealModalProps) {
   return (
     <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent className="bg-card border-border/70 max-w-md">
+      <DialogContent className="bg-card border-primary/50 max-w-lg px-8 py-6">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold text-center">
             최종 역할 공개
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-2 max-h-80 overflow-y-auto text-sm">
+        <div className="space-y-2 max-h-80 overflow-y-auto text-base">
           {players.map((p) => (
             <div
               key={p.id}
@@ -63,7 +63,7 @@ export default function PlayerRevealModal({
                   <img
                     src={ROLE_ICON_URL[p.roleKey]}
                     alt={p.roleName}
-                    className="w-8 h-8 rounded-md object-contain"
+                    className="w-16 h-16 rounded-md object-contain"
                   />
                 )}
                 <div className="flex items-center gap-2">
@@ -77,7 +77,7 @@ export default function PlayerRevealModal({
                         </span>
                       )}
                     </div>
-                    <div className="text-[11px] text-muted-foreground">
+                    <div className="text-xs text-muted-foreground">
                       {p.roleName} • {renderTeamText(p.team)}
                     </div>
                   </div>
@@ -89,8 +89,8 @@ export default function PlayerRevealModal({
             </div>
           ))}
         </div>
-        <div className="mt-4 flex justify-center">
-          <Button variant="gold" size="sm" onClick={onConfirm}>
+        <div className="mt-6 flex justify-center">
+          <Button variant="gold" size="lg" onClick={onConfirm}>
             로비로 돌아가기
           </Button>
         </div>

@@ -1,4 +1,4 @@
-import { Bomb, Skull } from "lucide-react";
+import { Bomb, Skull, Shield, AlertTriangle } from "lucide-react";
 import type { UiKnownInfo, UiPlayer } from "@/types/game-ui";
 
 import roleMawangFear from "@/assets/role/공포의_마왕.png";
@@ -122,6 +122,33 @@ export default function PlayerList({
                         <span>폭탄</span>
                         <span className="font-mono">
                           {formatCountdown(p.status.hasBomb.remainingSeconds)}
+                        </span>
+                      </div>
+                    )}
+                    {p.status.isInvincible && (
+                      <div className="flex items-center gap-1 text-xs text-hero mt-1">
+                        <Shield className="w-4 h-4" />
+                        <span>무적</span>
+                        <span className="font-mono">
+                          {formatCountdown(p.status.isInvincible.remainingSeconds)}
+                        </span>
+                      </div>
+                    )}
+                    {p.status.isIntimidated && (
+                      <div className="flex items-center gap-1 text-xs text-destructive mt-1">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span>겁주기</span>
+                        <span className="font-mono">
+                          {formatCountdown(p.status.isIntimidated.remainingSeconds)}
+                        </span>
+                      </div>
+                    )}
+                    {p.status.trollStubborn && (
+                      <div className="flex items-center gap-1 text-xs text-evil mt-1">
+                        <Skull className="w-4 h-4" />
+                        <span>집념</span>
+                        <span className="font-mono">
+                          {formatCountdown(p.status.trollStubborn.remainingSeconds)}
                         </span>
                       </div>
                     )}
