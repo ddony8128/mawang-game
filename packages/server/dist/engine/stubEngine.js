@@ -955,7 +955,7 @@ class GameEngineImpl {
             const target = ensureTarget();
             if (!target)
                 return;
-            const durationMs = 120_000; // 2분
+            const durationMs = 60_000; // 1분
             const untilMs = now + durationMs;
             target.effects.push({
                 id: crypto_1.default.randomUUID(),

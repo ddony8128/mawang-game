@@ -179,7 +179,7 @@ function RulesContent({ settings }: { settings: UiGameSettings }) {
           <ul className="list-none space-y-0.5">
             <li>
               • 공포의 마왕: 공포의 재림(1회, 사망 시 생명력 3으로 부활하며
-              정체 전체 공개), 겁주기(쿨타임 3분, 대상 1명 2분간 행동 불가)
+              정체 전체 공개), 겁주기(쿨타임 3분, 대상 1명 1분간 행동 불가)
             </li>
             <li>
               • 분탕의 마왕: 분탕의 집념(1회, 사망해도 {chaosMinutes}

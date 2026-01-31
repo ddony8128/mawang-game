@@ -1167,7 +1167,7 @@ function mapFoggedToUi(state: FoggedGameState, roomId: string): UiGameState {
     ),
     gamePhase: state.meta.state === "running" ? "playing" : "ended",
     settings: {
-      cardDrawInterval: state.settings?.drawIntervalSec ?? 600,
+      cardDrawInterval: state.settings?.drawIntervalSec ?? 60,
       bombTimer: state.settings?.bombDelaySec ?? 180,
       handLimit: state.settings?.handLimit ?? 4,
       fearKingReviveHp: state.settings?.fearReviveHp ?? 3,

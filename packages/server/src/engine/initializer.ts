@@ -131,9 +131,9 @@ export async function createInitialSnapshotForRoom(
 
   const rawSettings = (gameRow.settings as Partial<GameSettings>) ?? {};
   const settings: GameSettings = {
-    // 기본 드로우 주기를 2분(120초)로 설정
-    drawIntervalSec: rawSettings.drawIntervalSec ?? 120,
-    bombDelaySec: rawSettings.bombDelaySec ?? 300,
+    // 기본 드로우 주기를 1분(60초)로 설정
+    drawIntervalSec: rawSettings.drawIntervalSec ?? 60,
+    bombDelaySec: rawSettings.bombDelaySec ?? 180,
     handLimit: rawSettings.handLimit ?? 4,
     fearReviveHp: rawSettings.fearReviveHp ?? 3,
     trollSurviveSec: rawSettings.trollSurviveSec ?? 180,

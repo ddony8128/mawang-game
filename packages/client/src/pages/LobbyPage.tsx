@@ -77,8 +77,8 @@ export function LobbyPage() {
   const [roomTitle, setRoomTitle] = useState<string>("마왕 잡으러 갈 사람!");
 
   const [settings, setSettings] = useState<RoomSettings>({
-    cardDrawInterval: 2,
-    bombTimer: 5,
+    cardDrawInterval: 1,
+    bombTimer: 3,
     handLimit: 4,
     fearKingReviveHp: 3,
     chaosKingPersistTime: 3,
@@ -388,6 +388,7 @@ export function LobbyPage() {
                   }))
                 }
                 options={[
+                  { value: "1", label: "1분" },
                   { value: "2", label: "2분" },
                   { value: "3", label: "3분" },
                   { value: "4", label: "4분" },
@@ -668,8 +669,8 @@ function SettingSelect({
 function fromApiSettings(api: ApiRoomSettings | undefined): RoomSettings {
   if (!api) {
     return {
-      cardDrawInterval: 2,
-      bombTimer: 5,
+      cardDrawInterval: 1,
+      bombTimer: 3,
       handLimit: 4,
       fearKingReviveHp: 3,
       chaosKingPersistTime: 3,
@@ -682,8 +683,8 @@ function fromApiSettings(api: ApiRoomSettings | undefined): RoomSettings {
     };
   }
   return {
-    cardDrawInterval: Math.round((api.drawIntervalSec ?? 120) / 60),
-    bombTimer: Math.round((api.bombDelaySec ?? 300) / 60),
+    cardDrawInterval: Math.round((api.drawIntervalSec ?? 60) / 60),
+    bombTimer: Math.round((api.bombDelaySec ?? 180) / 60),
     handLimit: api.handLimit ?? 4,
     fearKingReviveHp: api.fearReviveHp ?? 3,
     chaosKingPersistTime: Math.round((api.trollSurviveSec ?? 180) / 60),
