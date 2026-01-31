@@ -110,7 +110,11 @@ function RulesContent({ settings }: { settings: UiGameSettings }) {
   const heroCount = settings.teamCounts?.hero ?? 3;
   const civilCount = settings.teamCounts?.civil ?? 1;
 
-  const drawMinutes = Math.round(settings.cardDrawInterval / 60);
+  const drawSeconds = settings.cardDrawInterval;
+  const drawText =
+    drawSeconds < 60
+      ? `${drawSeconds}초`
+      : `${Math.round(drawSeconds / 60)}분`;
   const bombMinutes = Math.round(settings.bombTimer / 60);
   const chaosMinutes = Math.round(settings.chaosKingPersistTime / 60);
 
@@ -141,7 +145,7 @@ function RulesContent({ settings }: { settings: UiGameSettings }) {
           카드 / 타이머
         </h3>
         <ul className="list-none space-y-0.5 text-muted-foreground">
-          <li>• 카드 드로우: {drawMinutes}분마다 카드 1장 자동 획득</li>
+          <li>• 카드 드로우: {drawText}마다 카드 1장 자동 획득</li>
           <li>• 폭탄 시한: 설치 후 약 {bombMinutes}분 뒤 2 데미지</li>
           <li>• 손패 제한: 최대 {settings.handLimit}장 (초과 시 버리기 필요)</li>
           <li>

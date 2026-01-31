@@ -24,7 +24,7 @@ function getDeviceIdHeader(req) {
 // GDD 기반 기본 게임 설정 (document/ServerStateModel 3. GameSettings)
 const DEFAULT_GAME_SETTINGS = {
     // 카드/드로우
-    drawIntervalSec: 60, // 1분
+    drawIntervalSec: 40, // 40초
     bombDelaySec: 180, // 3분
     handLimit: 4,
     // 마왕
@@ -491,7 +491,7 @@ exports.roomsRouter.delete("/:roomId", auth_1.requireRoomAuth, auth_1.requireHos
     }
 });
 function validateRoomSettings(raw) {
-    const allowedDraw = [60, 120, 180, 240]; // 1,2,3,4분
+    const allowedDraw = [40, 60, 120, 180, 240]; // 40초, 1,2,3,4분
     const allowedBomb = [60, 180, 300, 420]; // 1,3,5,7분
     const allowedHandLimit = [3, 4, 5];
     const drawIntervalSec = raw.drawIntervalSec;

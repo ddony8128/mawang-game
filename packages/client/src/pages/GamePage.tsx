@@ -641,9 +641,9 @@ export function GamePage() {
         knownInfo={myPlayer.knownInfo}
       />
 
-      {/* 하단 고정 영역 */}
+      {/* 플레이어 리스트 아래에 이어지는 하단 영역 */}
       <div
-        className={`fixed bottom-0 left-0 right-0 bg-card/95 backdrop-blur-md border-t border-border/50 transition-opacity ${
+        className={`mt-2 bg-card/95 backdrop-blur-md border-t border-border/50 transition-opacity ${
           connectionStatus !== "connected" ? "opacity-80" : "opacity-100"
         }`}
       >
@@ -1167,7 +1167,7 @@ function mapFoggedToUi(state: FoggedGameState, roomId: string): UiGameState {
     ),
     gamePhase: state.meta.state === "running" ? "playing" : "ended",
     settings: {
-      cardDrawInterval: state.settings?.drawIntervalSec ?? 60,
+      cardDrawInterval: state.settings?.drawIntervalSec ?? 40,
       bombTimer: state.settings?.bombDelaySec ?? 180,
       handLimit: state.settings?.handLimit ?? 4,
       fearKingReviveHp: state.settings?.fearReviveHp ?? 3,

@@ -5,7 +5,7 @@ import type { RoleKey, Team, Side } from "./identity";
 
 export type GameSettings = {
   // 카드/드로우
-  drawIntervalSec: 60 | 120 | 180 | 240; // 1/2/3/4분
+  drawIntervalSec: 40 | 60 | 120 | 180 | 240; // 40초 / 1/2/3/4분
   bombDelaySec: 60 | 180 | 300 | 420; // 1/3/5/7분
   handLimit: 3 | 4 | 5;
 

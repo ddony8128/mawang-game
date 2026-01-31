@@ -1,5 +1,4 @@
 import { Bomb, Skull, Shield, AlertTriangle } from "lucide-react";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import type { UiKnownInfo, UiPlayer } from "@/types/game-ui";
 
 import roleMawangFear from "@/assets/role/공포의_마왕.png";
@@ -47,11 +46,8 @@ export default function PlayerList({
 }: PlayerListProps) {
   return (
     <div className="max-w-3xl mx-auto w-full px-4 pt-4 pb-6">
-      {/* 인게임 하단 고정 영역(능력/카드 바)을 가리지 않고 플레이어를 충분히 볼 수 있도록
-          뷰포트 기준 최대 높이를 잡고 내부를 스크롤 가능하게 만든다. */}
-      <ScrollArea className="max-h-[calc(100vh-220px)] pr-2">
-        <div className="grid grid-cols-2 gap-3 pb-4">
-          {players.map((p) => {
+      <div className="grid grid-cols-2 gap-3 pb-4">
+        {players.map((p) => {
             const isMe = p.id === myPlayerId;
             const isSelected = p.id === selectedPlayerId;
             const info = knownInfo[p.id];
@@ -166,8 +162,7 @@ export default function PlayerList({
               </button>
             );
           })}
-        </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

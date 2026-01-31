@@ -77,7 +77,7 @@ export function LobbyPage() {
   const [roomTitle, setRoomTitle] = useState<string>("마왕 잡으러 갈 사람!");
 
   const [settings, setSettings] = useState<RoomSettings>({
-    cardDrawInterval: 1,
+    cardDrawInterval: 40, // 초 단위 (기본 40초)
     bombTimer: 3,
     handLimit: 4,
     fearKingReviveHp: 3,
@@ -388,10 +388,11 @@ export function LobbyPage() {
                   }))
                 }
                 options={[
-                  { value: "1", label: "1분" },
-                  { value: "2", label: "2분" },
-                  { value: "3", label: "3분" },
-                  { value: "4", label: "4분" },
+                  { value: "40", label: "40초" },
+                  { value: "60", label: "1분" },
+                  { value: "120", label: "2분" },
+                  { value: "180", label: "3분" },
+                  { value: "240", label: "4분" },
                 ]}
               />
               <SettingSelect
@@ -669,7 +670,7 @@ function SettingSelect({
 function fromApiSettings(api: ApiRoomSettings | undefined): RoomSettings {
   if (!api) {
     return {
-      cardDrawInterval: 1,
+      cardDrawInterval: 40,
       bombTimer: 3,
       handLimit: 4,
       fearKingReviveHp: 3,
@@ -683,7 +684,7 @@ function fromApiSettings(api: ApiRoomSettings | undefined): RoomSettings {
     };
   }
   return {
-    cardDrawInterval: Math.round((api.drawIntervalSec ?? 60) / 60),
+    cardDrawInterval: api.drawIntervalSec ?? 40,
     bombTimer: Math.round((api.bombDelaySec ?? 180) / 60),
     handLimit: api.handLimit ?? 4,
     fearKingReviveHp: api.fearReviveHp ?? 3,
@@ -699,7 +700,7 @@ function fromApiSettings(api: ApiRoomSettings | undefined): RoomSettings {
 
 function toApiSettings(ui: RoomSettings): ApiRoomSettings {
   return {
-    drawIntervalSec: ui.cardDrawInterval * 60,
+    drawIntervalSec: ui.cardDrawInterval,
     bombDelaySec: ui.bombTimer * 60,
     handLimit: ui.handLimit,
     fearReviveHp: ui.fearKingReviveHp,
