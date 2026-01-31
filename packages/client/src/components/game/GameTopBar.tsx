@@ -21,32 +21,35 @@ function GameTopBar({
 
   return (
     <header className="sticky top-0 z-40 bg-card/95 backdrop-blur-md border-b border-border/50 px-4 py-3">
-      <div className="max-w-3xl mx-auto flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col">
-            <span className="text-sm text-muted-foreground">나</span>
-            <span className="font-semibold flex items-center gap-2 text-lg">
-              {player.nickname}
-              {player.role && (
-                <span className="text-xs px-3 py-1 rounded-full bg-accent/20 text-accent-foreground">
-                  {player.role.name}
-                </span>
-              )}
-            </span>
+      <div className="max-w-3xl mx-auto flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col">
+              <span className="text-sm text-muted-foreground">나</span>
+              <span className="font-semibold flex items-center gap-2 text-lg">
+                {player.nickname}
+                {player.role && (
+                  <span className="text-xs px-3 py-1 rounded-full bg-accent/20 text-accent-foreground">
+                    {player.role.name}
+                  </span>
+                )}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: player.maxHp }).map((_, i) => (
+                <Heart
+                  key={i}
+                  className={`w-5 h-5 ${
+                    i < player.hp
+                      ? "text-primary fill-primary"
+                      : "text-muted-foreground"
+                  }`}
+                />
+              ))}
+            </div>
           </div>
-          <div className="flex items-center gap-1">
-            {Array.from({ length: player.maxHp }).map((_, i) => (
-              <Heart
-                key={i}
-                className={`w-5 h-5 ${
-                  i < player.hp
-                    ? "text-primary fill-primary"
-                    : "text-muted-foreground"
-                }`}
-              />
-            ))}
-          </div>
-          <div className="flex items-center gap-1">
+
+          <div className="flex flex-wrap items-center gap-1">
             {player.status.isInvincible && (
               <div className="flex items-center gap-1 text-xs text-hero bg-hero/10 border border-hero/40 rounded-full px-3 py-1">
                 <Shield className="w-4 h-4" />

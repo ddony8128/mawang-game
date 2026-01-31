@@ -4,6 +4,7 @@ import type { UiAbility } from "@/types/game-ui";
 interface AbilityBarProps {
   abilities: UiAbility[];
   disabled?: boolean;
+  disabledReason?: "dead" | "intimidated" | "mustDiscard";
   selectedAbilityId: string | null;
   onSelectAbility: (id: string) => void;
 }
@@ -11,6 +12,7 @@ interface AbilityBarProps {
 export default function AbilityBar({
   abilities,
   disabled,
+  disabledReason,
   selectedAbilityId,
   onSelectAbility,
 }: AbilityBarProps) {
@@ -25,7 +27,11 @@ export default function AbilityBar({
           <span className="text-xs text-muted-foreground">직업 능력</span>
           {disabled && (
             <span className="text-[11px] text-destructive">
-              겁주기 상태로 능력을 사용할 수 없습니다
+              {disabledReason === "dead"
+                ? "사망 상태에서는 능력을 사용할 수 없습니다"
+                : disabledReason === "mustDiscard"
+                  ? "먼저 카드를 버려야 능력을 사용할 수 있습니다"
+                  : "겁주기 상태로 능력을 사용할 수 없습니다"}
             </span>
           )}
         </div>

@@ -314,7 +314,7 @@ function buildModalTemplate(
 
         return {
           title: "악의 하수인 정보",
-          message: `마왕: ${mawangNickname}\n용사 구성 정보는 없습니다.`,
+          message: `마왕은 ${mawangNickname}입니다.`,
           imageUrl: imgRoleAideInfo,
         };
       }

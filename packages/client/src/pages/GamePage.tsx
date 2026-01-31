@@ -145,11 +145,12 @@ export function GamePage() {
         // 전역 스토어에 종료 상태 저장 (ResultPage 에서 사용)
         setEndState(endState);
 
-        // 게임 화면에서의 결과 모달/역할 공개를 위해 UI 상태도 설정
-        if (!gameState) return;
+        // 내 플레이어 id 는 gameState 가 있으면 거기서, 없으면 세션에서 가져온다.
+        const myPlayerId = gameState?.myPlayerId ?? session?.roomPlayerId ?? null;
+        if (!myPlayerId) return;
 
         const myResult = endState.results.find(
-          (r) => r.playerId === gameState.myPlayerId,
+          (r) => r.playerId === myPlayerId,
         );
 
         const isVictory = !!myResult?.win;
@@ -599,6 +600,9 @@ export function GamePage() {
           selectedAbilityId={selectedAbilityId}
           onSelectAbility={handleUseAbility}
           disabled={isDead || isIntimidated || mustDiscard}
+          disabledReason={
+            isDead ? "dead" : mustDiscard ? "mustDiscard" : isIntimidated ? "intimidated" : undefined
+          }
         />
         <div className="px-4 py-1 border-t border-border/30 bg-card/95">
           <div className="max-w-3xl mx-auto flex items-center justify-between text-xs">

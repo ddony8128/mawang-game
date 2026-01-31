@@ -345,7 +345,7 @@ export async function createInitialSnapshotForRoom(
     };
   }
 
-  // 악의 하수인에게 마왕 정체 / 레이드 정보 로그
+  // 악의 하수인에게 마왕 정체 / 레이드 정보 로그 + knowledge 세팅
   const mawangPlayer = players[mawangId];
   const heroRolesInGame = Array.from(heroRolesPresent);
   const civilRolesInGame = Array.from(civilRolesPresent);
@@ -370,6 +370,24 @@ export async function createInitialSnapshotForRoom(
         },
         modal: true,
       });
+
+      // 참모는 마왕의 팀/역할 정보를 사전에 알고 있다.
+      const prev = ps.knowledge.knownByTarget[mawangPlayer.identity.playerId] ?? [];
+      ps.knowledge.knownByTarget[mawangPlayer.identity.playerId] = [
+        ...prev,
+        {
+          kind: "team",
+          team: mawangPlayer.team,
+          obtainedAtMs: nowMs,
+          by: "skill",
+        } as any,
+        {
+          kind: "role",
+          role: mawangPlayer.role,
+          obtainedAtMs: nowMs,
+          by: "skill",
+        } as any,
+      ];
     } else if (ps.role === "fallen") {
       // 타락자: 마왕 정체만 알고 시작 (용사 구성은 모름)
       appendLog(log, {
@@ -383,6 +401,24 @@ export async function createInitialSnapshotForRoom(
         },
         modal: true,
       });
+
+      // 타락자도 마왕의 팀/역할 정보를 사전에 알고 있다.
+      const prev = ps.knowledge.knownByTarget[mawangPlayer.identity.playerId] ?? [];
+      ps.knowledge.knownByTarget[mawangPlayer.identity.playerId] = [
+        ...prev,
+        {
+          kind: "team",
+          team: mawangPlayer.team,
+          obtainedAtMs: nowMs,
+          by: "skill",
+        } as any,
+        {
+          kind: "role",
+          role: mawangPlayer.role,
+          obtainedAtMs: nowMs,
+          by: "skill",
+        } as any,
+      ];
     }
   }
 
