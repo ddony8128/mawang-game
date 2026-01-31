@@ -110,6 +110,22 @@ export function LobbyPage() {
 
   const handleStartGame = async () => {
     if (!canStart || !roomId) return;
+
+    // 팀 구성 합계 + 마왕 1명이 현재 인원 수와 일치하는지 클라이언트 측에서 한 번 더 검증한다.
+    const inRoomPlayers = players.filter((p) => p.isInRoom);
+    const totalPlayers = inRoomPlayers.length;
+    const totalConfigured =
+      settings.traitorCount + settings.heroCount + settings.citizenCount + 1; // +1 마왕
+
+    if (totalConfigured !== totalPlayers) {
+      window.alert(
+        `팀 구성과 현재 인원 수가 맞지 않습니다.\n\n` +
+          `현재 인원: ${totalPlayers}명\n` +
+          `설정된 팀 구성: 마왕 1명 + 배신자 ${settings.traitorCount}명 + 용사 ${settings.heroCount}명 + 시민 ${settings.citizenCount}명 = 총 ${totalConfigured}명.\n\n` +
+          `팀 구성 합(마왕 포함)이 현재 인원 수와 정확히 같아야 게임을 시작할 수 있습니다.`,
+      );
+      return;
+    }
     try {
       const res = await apiStartRoom(roomId, 5);
       const endsAt = res.countdown?.endsAtMs ?? Date.now() + 5000;
@@ -493,114 +509,15 @@ export function LobbyPage() {
               />
             </div>
 
-            {/* GM 모드 설정 */}
-            <div className="space-y-3">
+            {/* GM 모드 설정 - 추후 추가 예정 */}
+            <div className="space-y-2">
               <h4 className="font-semibold text-sm text-muted-foreground">
-                GM 모드
+                GM 모드 (추후 추가 예정)
               </h4>
-              <div className="flex items-center justify-between gap-4">
-                <Label className="text-sm">GM 모드 활성화</Label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSettings((s) => ({
-                      ...s,
-                      gmEnabled: !s.gmEnabled,
-                    }))
-                  }
-                  className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                    settings.gmEnabled
-                      ? "bg-primary/20 border-primary text-primary"
-                      : "bg-muted border-border text-muted-foreground"
-                  }`}
-                >
-                  {settings.gmEnabled ? "켜짐" : "꺼짐"}
-                </button>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <Label className="text-sm">방장이 GM</Label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSettings((s) => ({
-                      ...s,
-                      hostIsGM: !s.hostIsGM,
-                    }))
-                  }
-                  className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                    settings.hostIsGM
-                      ? "bg-primary/20 border-primary text-primary"
-                      : "bg-muted border-border text-muted-foreground"
-                  }`}
-                >
-                  {settings.hostIsGM ? "예" : "아니오"}
-                </button>
-              </div>
               <p className="text-[11px] text-muted-foreground">
-                GM 모드가 활성화되면 아래에서 지정한 고정 역할이 우선 적용되고,
-                나머지 인원은 팀 구성 규칙에 따라 자동 배정됩니다.
+                방장이 역할을 직접 지정하는 GM 모드는 향후 업데이트에서 제공될 예정입니다.
+                현재 버전에서는 항상 랜덤 배정만 사용됩니다.
               </p>
-
-              {settings.gmEnabled && (
-                <div className="mt-3 space-y-2 border-t border-border/40 pt-3">
-                  <h5 className="text-xs font-semibold text-muted-foreground">
-                    플레이어별 고정 역할
-                  </h5>
-                  <p className="text-[11px] text-muted-foreground">
-                    각 플레이어에게 역할을 직접 지정할 수 있습니다.{" "}
-                    <span className="font-medium">자동 배치</span>로 두면 위 팀 구성에 따라 랜덤 배정됩니다.
-                  </p>
-                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                    {players.map((player) => {
-                      const current =
-                        settings.gmFixedRoles[player.roomPlayerId] ?? "auto";
-                      return (
-                        <div
-                          key={player.roomPlayerId}
-                          className="flex items-center justify-between gap-3 text-sm"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <span className="truncate block">
-                              {player.nickname}
-                              {player.isHost && (
-                                <span className="text-xs text-accent ml-1">
-                                  (방장)
-                                </span>
-                              )}
-                            </span>
-                          </div>
-                          <Select
-                            value={current}
-                            onValueChange={(value) =>
-                              setSettings((s) => {
-                                const next = { ...s.gmFixedRoles };
-                                if (value === "auto") {
-                                  delete next[player.roomPlayerId];
-                                } else {
-                                  next[player.roomPlayerId] = value;
-                                }
-                                return { ...s, gmFixedRoles: next };
-                              })
-                            }
-                          >
-                            <SelectTrigger className="w-40 bg-muted/50">
-                              <SelectValue placeholder="자동 배치" />
-                            </SelectTrigger>
-                            <SelectContent className="bg-popover border-border max-h-60 overflow-y-auto">
-                              <SelectItem value="auto">자동 배치</SelectItem>
-                              {GM_ROLE_OPTIONS.map((opt) => (
-                                <SelectItem key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 
