@@ -169,7 +169,7 @@ export function HowToPlayPage() {
                 />
                 <RoleItem
                   name="슬레이어"
-                  description="능력: 짱쎈 필살기(1회 사용, 대상 1명에게 3 데미지, 사용 시 누가 누구를 공격했는지 전체 공개)"
+                  description="능력: 짱쎈 필살기(1회 사용, 대상 1명에게 2 데미지, 사용 시 누가 누구를 공격했는지 전체 공개)"
                 />
                 <RoleItem
                   name="현자"

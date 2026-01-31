@@ -954,7 +954,7 @@ const ROLE_ABILITIES: Record<
     {
       id: "slayer_ult",
       name: "짱쎈 필살기",
-      description: "대상 1명에게 3 데미지를 입히는 강력한 일회용 기술입니다.",
+      description: "대상 1명에게 2 데미지를 입히는 강력한 일회용 기술입니다.",
       cooldown: 0,
     },
   ],
