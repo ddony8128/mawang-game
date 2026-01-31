@@ -716,18 +716,3 @@ function toApiSettings(ui: RoomSettings): ApiRoomSettings {
   };
 }
 
-const GM_ROLE_OPTIONS: { value: string; label: string }[] = [
-  { value: "mawang_fear", label: "공포의 마왕" },
-  { value: "mawang_troll", label: "분탕의 마왕" },
-  { value: "aide", label: "참모" },
-  { value: "fallen", label: "타락자" },
-  { value: "parryman", label: "패링맨" },
-  { value: "slayer", label: "슬레이어" },
-  { value: "sage", label: "현자" },
-  { value: "healer", label: "힐러" },
-  { value: "weakling", label: "약골" },
-  { value: "coward", label: "겁쟁이" },
-  { value: "madman", label: "정신병자" },
-  { value: "experiment_host", label: "실험체" },
-];
-

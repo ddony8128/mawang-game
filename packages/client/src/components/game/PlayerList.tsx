@@ -1,4 +1,5 @@
 import { Bomb, Skull, Shield, AlertTriangle } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import type { UiKnownInfo, UiPlayer } from "@/types/game-ui";
 
 import roleMawangFear from "@/assets/role/공포의_마왕.png";
@@ -45,124 +46,128 @@ export default function PlayerList({
   knownInfo,
 }: PlayerListProps) {
   return (
-    <div className="max-w-3xl mx-auto w-full px-4 py-4">
-      <div className="grid grid-cols-2 gap-3">
-        {players.map((p) => {
-          const isMe = p.id === myPlayerId;
-          const isSelected = p.id === selectedPlayerId;
-          const info = knownInfo[p.id];
-          const knownRoleKey = info?.roleKey;
-          const selfRoleKey = isMe && p.role ? p.role.id : undefined;
-          const roleIconKey = knownRoleKey ?? selfRoleKey;
+    <div className="max-w-3xl mx-auto w-full px-4 pt-4 pb-6">
+      {/* 인게임 하단 고정 영역(능력/카드 바)을 가리지 않고 플레이어를 충분히 볼 수 있도록
+          뷰포트 기준 최대 높이를 잡고 내부를 스크롤 가능하게 만든다. */}
+      <ScrollArea className="max-h-[calc(100vh-220px)] pr-2">
+        <div className="grid grid-cols-2 gap-3 pb-4">
+          {players.map((p) => {
+            const isMe = p.id === myPlayerId;
+            const isSelected = p.id === selectedPlayerId;
+            const info = knownInfo[p.id];
+            const knownRoleKey = info?.roleKey;
+            const selfRoleKey = isMe && p.role ? p.role.id : undefined;
+            const roleIconKey = knownRoleKey ?? selfRoleKey;
 
-          const borderColor = isSelected
-            ? "border-primary"
-            : isMe
-            ? "border-accent"
-            : p.isDead
-            ? "border-destructive/50"
-            : "border-border/60";
+            const borderColor = isSelected
+              ? "border-primary"
+              : isMe
+              ? "border-accent"
+              : p.isDead
+              ? "border-destructive/50"
+              : "border-border/60";
 
-          const bgColor = p.isDead ? "bg-muted/40" : "bg-card/70";
+            const bgColor = p.isDead ? "bg-muted/40" : "bg-card/70";
 
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() =>
-                onSelectPlayer(isSelected ? null : p.id)
-              }
-              className={`glass-card rounded-xl px-3 py-3 text-left border ${borderColor} ${bgColor} transition-all hover:border-primary/60 hover:shadow-glow-purple`}
-            >
-              <div className="flex items-center gap-3">
-                {roleIconKey && ROLE_ICON_URL[roleIconKey] && (
-                  <img
-                    src={ROLE_ICON_URL[roleIconKey]}
-                    alt=""
-                    className="w-16 h-16 rounded-md object-contain border border-border/60 bg-background/40 shrink-0"
-                  />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-base truncate">
-                      {p.nickname}
-                      {isMe && (
-                        <span className="text-primary text-sm ml-1">
-                          (나)
-                        </span>
-                      )}
-                    </span>
-                    {p.isDead && (
-                      <Skull className="w-4 h-4 text-destructive shrink-0" />
-                    )}
-                  </div>
-                  <div className="flex flex-col mt-2 gap-1 text-xs text-muted-foreground">
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() =>
+                  onSelectPlayer(isSelected ? null : p.id)
+                }
+                className={`glass-card rounded-xl px-3 py-3 text-left border ${borderColor} ${bgColor} transition-all hover:border-primary/60 hover:shadow-glow-purple`}
+              >
+                <div className="flex items-center gap-3">
+                  {roleIconKey && ROLE_ICON_URL[roleIconKey] && (
+                    <img
+                      src={ROLE_ICON_URL[roleIconKey]}
+                      alt=""
+                      className="w-16 h-16 rounded-md object-contain border border-border/60 bg-background/40 shrink-0"
+                    />
+                  )}
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <HpHearts hp={p.hp} maxHp={p.maxHp} />
-                      {info?.team && (
-                        <span
-                          className={
-                            info.team === "evil"
-                              ? "text-evil font-semibold"
-                              : "text-good font-semibold"
-                          }
-                        >
-                          {info.team === "evil" ? "악" : "선"} 확정
-                        </span>
+                      <span className="font-semibold text-base truncate">
+                        {p.nickname}
+                        {isMe && (
+                          <span className="text-primary text-sm ml-1">
+                            (나)
+                          </span>
+                        )}
+                      </span>
+                      {p.isDead && (
+                        <Skull className="w-4 h-4 text-destructive shrink-0" />
                       )}
                     </div>
-                    {info?.roleName && (
-                      <div className="text-xs text-foreground/80">
-                        역할: <span className="font-medium">{info.roleName}</span>
+                    <div className="flex flex-col mt-2 gap-1 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <HpHearts hp={p.hp} maxHp={p.maxHp} />
+                        {info?.team && (
+                          <span
+                            className={
+                              info.team === "evil"
+                                ? "text-evil font-semibold"
+                                : "text-good font-semibold"
+                            }
+                          >
+                            {info.team === "evil" ? "악" : "선"} 확정
+                          </span>
+                        )}
                       </div>
-                    )}
-                    {p.status.bombs &&
-                      p.status.bombs.map((bomb) => (
-                        <div
-                          key={bomb.id}
-                          className="flex items-center gap-1 text-xs text-destructive mt-1"
-                        >
-                          <Bomb className="w-4 h-4" />
-                          <span>폭탄</span>
+                      {info?.roleName && (
+                        <div className="text-xs text-foreground/80">
+                          역할: <span className="font-medium">{info.roleName}</span>
+                        </div>
+                      )}
+                      {p.status.bombs &&
+                        p.status.bombs.map((bomb) => (
+                          <div
+                            key={bomb.id}
+                            className="flex items-center gap-1 text-xs text-destructive mt-1"
+                          >
+                            <Bomb className="w-4 h-4" />
+                            <span>폭탄</span>
+                            <span className="font-mono">
+                              {formatCountdown(bomb.remainingSeconds)}
+                            </span>
+                          </div>
+                        ))}
+                      {p.status.isInvincible && (
+                        <div className="flex items-center gap-1 text-xs text-hero mt-1">
+                          <Shield className="w-4 h-4" />
+                          <span>무적</span>
                           <span className="font-mono">
-                            {formatCountdown(bomb.remainingSeconds)}
+                            {formatCountdown(p.status.isInvincible.remainingSeconds)}
                           </span>
                         </div>
-                      ))}
-                    {p.status.isInvincible && (
-                      <div className="flex items-center gap-1 text-xs text-hero mt-1">
-                        <Shield className="w-4 h-4" />
-                        <span>무적</span>
-                        <span className="font-mono">
-                          {formatCountdown(p.status.isInvincible.remainingSeconds)}
-                        </span>
-                      </div>
-                    )}
-                    {p.status.isIntimidated && (
-                      <div className="flex items-center gap-1 text-xs text-destructive mt-1">
-                        <AlertTriangle className="w-4 h-4" />
-                        <span>겁주기</span>
-                        <span className="font-mono">
-                          {formatCountdown(p.status.isIntimidated.remainingSeconds)}
-                        </span>
-                      </div>
-                    )}
-                    {p.status.trollStubborn && (
-                      <div className="flex items-center gap-1 text-xs text-evil mt-1">
-                        <Skull className="w-4 h-4" />
-                        <span>집념</span>
-                        <span className="font-mono">
-                          {formatCountdown(p.status.trollStubborn.remainingSeconds)}
-                        </span>
-                      </div>
-                    )}
+                      )}
+                      {p.status.isIntimidated && (
+                        <div className="flex items-center gap-1 text-xs text-destructive mt-1">
+                          <AlertTriangle className="w-4 h-4" />
+                          <span>겁주기</span>
+                          <span className="font-mono">
+                            {formatCountdown(p.status.isIntimidated.remainingSeconds)}
+                          </span>
+                        </div>
+                      )}
+                      {p.status.trollStubborn && (
+                        <div className="flex items-center gap-1 text-xs text-evil mt-1">
+                          <Skull className="w-4 h-4" />
+                          <span>집념</span>
+                          <span className="font-mono">
+                            {formatCountdown(p.status.trollStubborn.remainingSeconds)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            );
+          })}
+        </div>
+      </ScrollArea>
     </div>
   );
 }
