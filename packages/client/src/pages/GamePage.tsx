@@ -105,6 +105,8 @@ export function GamePage() {
   }[]>([]);
 
   const [selectedAbilityId, setSelectedAbilityId] = useState<SkillKey | null>(null);
+  // 돋보기 다중 선택(최대 3장)을 위한 상태
+  const [selectedMagnifierIds, setSelectedMagnifierIds] = useState<string[]>([]);
 
   const [connectionStatus, setConnectionStatus] = useState<
     "connecting" | "connected" | "reconnecting" | "error"
@@ -316,9 +318,6 @@ export function GamePage() {
   const mustDiscard =
     myPlayer.hand.length > gameState.settings.handLimit;
   const isDead = myPlayer.isDead;
-
-  // 돋보기 다중 선택을 위한 선택된 카드 ID 목록 (최대 3장)
-  const [selectedMagnifierIds, setSelectedMagnifierIds] = useState<string[]>([]);
 
   const selectedAbility =
     myPlayer.role?.abilities.find((a) => a.id === selectedAbilityId) || null;
