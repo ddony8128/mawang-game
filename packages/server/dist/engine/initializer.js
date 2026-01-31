@@ -184,7 +184,9 @@ async function createInitialSnapshotForRoom(roomId) {
             return null;
         mawangId = shuffledPlayers[0];
         if (!roleByPlayer.has(mawangId)) {
-            roleByPlayer.set(mawangId, "mawang_fear");
+            // 공포의 마왕 / 분탕의 마왕 중 하나를 랜덤으로 선택
+            const mawangRole = randomChoice(["mawang_fear", "mawang_troll"], rng.next);
+            roleByPlayer.set(mawangId, mawangRole);
         }
     }
     // GM이 이미 traitor/hero/civil 역할을 일부 채웠다면 목표 수에서 빼준다.
