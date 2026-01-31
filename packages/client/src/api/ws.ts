@@ -6,6 +6,7 @@ import type {
 import { useClientStore } from "@/stores/clientStore";
 import { useFoggedGameStore } from "@/stores/foggedGameStore";
 import { useUIStore } from "@/stores/uiStore";
+import { API_BASE_URL } from "./http";
 
 type WsConnectionState = "idle" | "connecting" | "connected" | "closed";
 
@@ -39,8 +40,18 @@ class WsClientImpl {
     this.onError = opts.onError;
     this.onEnd = opts.onEnd;
 
+    // WS 엔드포인트 결정
+    // 1) VITE_API_BASE_URL(API_BASE_URL)가 설정되어 있으면, 그 origin 을 기준으로 /ws 로 연결
+    //    예: https://mawang-game.onrender.com/api → wss://mawang-game.onrender.com/ws
+    // 2) 아니면 현재 프론트 도메인의 /ws 로 연결
+    let wsUrl: string;
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const wsUrl = `${protocol}://${window.location.host}/ws`;
+    if (API_BASE_URL) {
+      const wsBase = API_BASE_URL.replace(/^http/i, "ws").replace(/\/api\/?$/, "");
+      wsUrl = `${wsBase}/ws`;
+    } else {
+      wsUrl = `${protocol}://${window.location.host}/ws`;
+    }
 
     this.state = "connecting";
     const socket = new WebSocket(wsUrl);
