@@ -1,4 +1,9 @@
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+// 기본 API 베이스 URL
+// - 로컬 개발: VITE_API_BASE_URL=http://localhost:4000 처럼 설정
+// - 프로덕션(Vercel): 환경변수를 비워 두면 상대 경로(/api/...) + vercel.json 리라이트를 사용
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
+// 끝에 슬래시가 여러 개 붙어 있어도 한 번만 제거해 URL 이 "//api/..." 가 되는 것을 방지
+export const API_BASE_URL = rawBaseUrl.replace(/\/+$/, "");
 
 export class HttpError extends Error {
   status: number;
