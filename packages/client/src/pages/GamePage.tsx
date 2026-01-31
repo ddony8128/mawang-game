@@ -35,6 +35,18 @@ import { useClientStore } from "@/stores/clientStore";
 import { useFoggedGameStore } from "@/stores/foggedGameStore";
 import { useGameResultStore } from "@/stores/resultStore";
 import { useUIStore } from "@/stores/uiStore";
+import roleMawangFear from "@/assets/role/공포의_마왕.png";
+import roleMawangTroll from "@/assets/role/분탕의_마왕.png";
+import roleAide from "@/assets/role/참모.png";
+import roleFallen from "@/assets/role/타락자.png";
+import roleParryman from "@/assets/role/패링맨.png";
+import roleSlayer from "@/assets/role/슬레이어.png";
+import roleSage from "@/assets/role/현자.png";
+import roleHealer from "@/assets/role/힐러.png";
+import roleWeakling from "@/assets/role/약골.png";
+import roleCoward from "@/assets/role/겁쟁이.png";
+import roleMadman from "@/assets/role/정신병자.png";
+import roleExperiment from "@/assets/role/실험체.png";
 import type { FoggedGameState } from "@/types/foggedGame";
 import { Button } from "@/components/ui/button";
 
@@ -140,49 +152,41 @@ export function GamePage() {
     const roleKey = me.role.id as RoleKey;
     const roleName = me.role.name;
 
-    const introMap: Record<
-      RoleKey,
-      { objective: string }
-    > = {
-      mawang_fear: {
-        objective: "당신은 악 팀의 보스입니다. 용사와 시민을 모두 제거하면 승리합니다.",
-      },
-      mawang_troll: {
-        objective: "당신은 악 팀의 보스입니다. 집념으로 버티며 용사와 시민을 모두 제거하면 승리합니다.",
-      },
-      aide: {
-        objective: "당신은 악 팀의 참모입니다. 마왕을 지키고 용사들을 무너뜨리면 승리합니다.",
-      },
-      fallen: {
-        objective: "당신은 타락한 용사입니다. 겉으로는 용사처럼 행동하지만, 실은 악 팀과 함께 승리합니다.",
-      },
-      parryman: {
-        objective: "당신은 방어형 용사입니다. 아군을 지키며 마왕을 쓰러뜨리면 승리합니다.",
-      },
-      slayer: {
-        objective: "당신은 공격형 용사입니다. 필살기를 활용해 마왕을 처치하면 승리합니다.",
-      },
-      sage: {
-        objective: "당신은 정보형 용사입니다. 돋보기와 지식을 활용해 마왕과 배신자의 정체를 밝혀내야 합니다.",
-      },
-      healer: {
-        objective: "당신은 지원형 용사입니다. 아군을 치유하며 마왕을 쓰러뜨리면 승리합니다.",
-      },
-      weakling: {
-        objective: "당신은 허약한 시민입니다. 살아남으면서 아군을 도와 마왕을 쓰러뜨리면 승리합니다.",
-      },
-      coward: {
-        objective: "당신은 겁쟁이 시민입니다. 카드 사용이 자주 실패하니 신중하게 행동해야 합니다.",
-      },
-      madman: {
-        objective: "당신은 정신이 불안정한 시민입니다. 가짜 용사 능력을 흉내 내며 판을 교란합니다.",
-      },
-      experiment_host: {
-        objective: "당신은 실험체입니다. 사망 시 악 팀에게 큰 이득을 주니 생존이 중요합니다.",
-      },
+    const ROLE_ICON_URL: Record<string, string> = {
+      mawang_fear: roleMawangFear,
+      mawang_troll: roleMawangTroll,
+      aide: roleAide,
+      fallen: roleFallen,
+      parryman: roleParryman,
+      slayer: roleSlayer,
+      sage: roleSage,
+      healer: roleHealer,
+      weakling: roleWeakling,
+      coward: roleCoward,
+      madman: roleMadman,
+      experiment_host: roleExperiment,
     };
 
-    const objective = introMap[roleKey]?.objective ?? "";
+    const isMawang =
+      roleKey === "mawang_fear" || roleKey === "mawang_troll";
+    const isTraitor = roleKey === "aide" || roleKey === "fallen";
+    const isHero =
+      roleKey === "parryman" ||
+      roleKey === "slayer" ||
+      roleKey === "sage" ||
+      roleKey === "healer";
+
+    let objectiveLine = "";
+    if (isMawang) {
+      objectiveLine = "배신자의 도움을 받아 용사들을 처치하세요.";
+    } else if (isTraitor) {
+      objectiveLine = "마왕을 도와 용사들을 처치하세요.";
+    } else if (isHero) {
+      objectiveLine = "마왕을 처치하세요.";
+    } else {
+      // 시민 계열
+      objectiveLine = "용사들이 마왕을 처치할 수 있도록 도우세요.";
+    }
 
     const abilityLines =
       me.role.abilities.length > 0
@@ -193,8 +197,8 @@ export function GamePage() {
 
     const messageParts: string[] = [];
     messageParts.push(`당신은 ${roleName}입니다.`);
-    if (objective) {
-      messageParts.push(objective);
+    if (objectiveLine) {
+      messageParts.push(objectiveLine);
     }
     if (abilityLines) {
       messageParts.push(`능력:\n${abilityLines}`);
@@ -205,6 +209,7 @@ export function GamePage() {
       title: `당신은 ${roleName}입니다`,
       message: messageParts.join("\n\n"),
       createdAtMs: Date.now(),
+      imageUrl: ROLE_ICON_URL[roleKey] ?? undefined,
     });
 
     setHasShownRoleIntro(true);
