@@ -164,15 +164,7 @@ export async function createInitialSnapshotForRoom(
   let traitorTarget = settings.teamCounts?.traitor ?? baseComp.traitor;
   let heroTarget = settings.teamCounts?.hero ?? baseComp.hero;
   let civilTarget = settings.teamCounts?.civil ?? baseComp.civil;
-
-  // [임시 처리] 2인 방일 경우: 랜덤 마왕 1명 + 랜덤 용사 1명
-  // - 마왕은 항상 1명이므로 비(非)마왕 인원은 1명
-  // - 이 1명을 용사로 강제 배치하고, 배신자/시민은 0으로 고정한다.
-  if (totalPlayers === 2) {
-    traitorTarget = 0;
-    heroTarget = totalNonMawang; // 1
-    civilTarget = 0;
-  } else if (traitorTarget + heroTarget + civilTarget !== totalNonMawang) {
+  if (traitorTarget + heroTarget + civilTarget !== totalNonMawang) {
     // 합이 맞지 않으면 GDD 기본 구성으로 되돌린다.
     traitorTarget = baseComp.traitor;
     heroTarget = baseComp.hero;
@@ -232,11 +224,7 @@ export async function createInitialSnapshotForRoom(
     if (shuffledPlayers.length === 0) return null;
     mawangId = shuffledPlayers[0];
     if (!roleByPlayer.has(mawangId)) {
-      // [임시 처리] 2인 방에서는 마왕 역할도 랜덤으로 선택한다.
-      // - "공포의 마왕" 또는 "분탕의 마왕" 중 하나
-      const mawangRoles: RoleKey[] = ["mawang_fear", "mawang_troll"];
-      const chosenMawang = totalPlayers === 2 ? randomChoice(mawangRoles, rng.next) : "mawang_fear";
-      roleByPlayer.set(mawangId, chosenMawang);
+      roleByPlayer.set(mawangId, "mawang_fear");
     }
   }
 

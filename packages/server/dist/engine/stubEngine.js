@@ -1356,6 +1356,34 @@ class GameEngineImpl {
                 cause: { type: "timeout" },
             });
         }
+        else if (task.type === "ABORT_GAME") {
+            this.abortGame();
+        }
+    }
+    abortGame() {
+        if (!this.state)
+            return;
+        if (this.state.meta.state === "ended")
+            return;
+        const players = Object.values(this.state.players);
+        this.state.meta.state = "ended";
+        this.state.endState = {
+            gameId: this.state.ids.gameId,
+            roomId: this.state.ids.roomId,
+            seq: this.state.ids.seq,
+            endedAtMs: this.state.timers.nowMs,
+            reason: "ABORTED",
+            results: players.map((p) => ({
+                playerId: p.identity.playerId,
+                nickname: p.identity.nickname,
+                // 중단된 게임에서는 모두 패배 처리
+                win: false,
+                alive: p.alive,
+                role: p.role,
+                team: p.team,
+                side: p.side,
+            })),
+        };
     }
     handleTimerFired(task, ctx) {
         if (!this.state)

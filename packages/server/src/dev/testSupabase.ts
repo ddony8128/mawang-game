@@ -1,9 +1,6 @@
 import { supabase } from "../db/supabase";
 
 async function main() {
-  // 환경 변수 확인
-  console.log("[testSupabase] SUPABASE_URL =", process.env.SUPABASE_URL);
-
   // rooms 테이블에서 몇 개만 읽어보기
   const { data, error } = await supabase
     .from("rooms")
@@ -12,8 +9,6 @@ async function main() {
 
   if (error) {
     console.error("[testSupabase] error while querying rooms:", error);
-  } else {
-    console.log("[testSupabase] rooms sample:", data);
   }
 
   // room_players 테이블도 간단히 확인 (있으면)
@@ -24,8 +19,6 @@ async function main() {
 
   if (playersError) {
     console.error("[testSupabase] error while querying room_players:", playersError);
-  } else {
-    console.log("[testSupabase] room_players sample:", players);
   }
 }
 

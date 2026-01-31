@@ -11,6 +11,4 @@ const app = (0, app_1.createApp)();
 const server = http_1.default.createServer(app);
 (0, server_1.createGameWsServer)(server);
 const port = Number(process.env.PORT ?? 4000);
-server.listen(port, () => {
-    console.log(`Server listening on ${port}`);
-});
+server.listen(port);

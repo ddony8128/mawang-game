@@ -373,11 +373,50 @@ function buildModalTemplate(
       const cardType = p.cardType as string | undefined;
       if (cardType === "magnifier") {
         const mode = p.mode as string | undefined;
-        const modeLabel =
-          mode === "magnifier3" ? "돋보기 3장" : "돋보기 2장";
+
+        const state = useFoggedGameStore.getState().state;
+        const targetId =
+          typeof p.targetPlayerId === "string" ? (p.targetPlayerId as string) : null;
+        const targetName =
+          (state &&
+            targetId &&
+            state.players.find((pl) => pl.playerId === targetId)?.nickname) ||
+          "알 수 없는 플레이어";
+
+        // me.know.byTarget 에서 해당 대상에 대한 팀/역할 정보를 찾아온다.
+        let teamLabel: string | null = null;
+        let roleLabel: string | null = null;
+        if (state && targetId && state.me.know?.byTarget) {
+          const known = state.me.know.byTarget[targetId] as any[] | undefined;
+          if (known && Array.isArray(known)) {
+            const teamKnown = known.find((r) => r.kind === "team");
+            if (teamKnown && (teamKnown.team === "good" || teamKnown.team === "evil")) {
+              teamLabel = teamKnown.team === "evil" ? "악 팀" : "선 팀";
+            }
+            const roleKnown = known.find((r) => r.kind === "role");
+            if (roleKnown && typeof roleKnown.role === "string") {
+              roleLabel = ROLE_NAME_MAP[roleKnown.role] ?? roleKnown.role;
+            }
+          }
+        }
+
+        if (mode === "magnifier3") {
+          // 돋보기 3장: ~~가 ~~임을 확인했다.
+          const roleText =
+            roleLabel ?? "어떤 역할인지";
+          return {
+            title: "돋보기 3장 사용",
+            message: `${targetName}이(가) ${roleText}임을 확인했습니다.`,
+            imageUrl: imgCardMagnifier,
+          };
+        }
+
+        // 돋보기 2장: ~~가 무슨 편임을 확인했다.
+        const teamText =
+          teamLabel ?? "어느 편인지";
         return {
-          title: "돋보기 사용",
-          message: `${modeLabel}을 사용해 누군가의 정보를 확인했습니다.`,
+          title: "돋보기 2장 사용",
+          message: `${targetName}이(가) ${teamText} 확인했습니다.`,
           imageUrl: imgCardMagnifier,
         };
       }

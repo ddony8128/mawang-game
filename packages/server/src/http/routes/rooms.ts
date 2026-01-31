@@ -430,11 +430,9 @@ roomsRouter.post("/:roomId/start", requireRoomAuth, requireHost, async (req, res
     const players = await listRoomPlayers(roomId);
     const inRoomPlayers = players.filter((p) => p.is_in_room);
 
-    // TODO: GDD 상 최소 인원은 6명이지만,
-    // 개발/테스트 편의를 위해 일시적으로 2인 플레이를 허용한다.
-    // 2인 방일 경우 역할은 "랜덤 마왕 1명 + 랜덤 용사 1명"으로 구성된다.
-    if (inRoomPlayers.length < 2) {
-      return sendError(res, "CONFLICT", "at least 2 players required", 409);
+    // GDD 기준: 최소 6인부터 시작 가능
+    if (inRoomPlayers.length < 6) {
+      return sendError(res, "CONFLICT", "at least 6 players required", 409);
     }
     const maxPlayers = room.max_players ?? 10;
     if (inRoomPlayers.length > maxPlayers) {

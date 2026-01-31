@@ -56,14 +56,27 @@ authRouter.post("/", async (req, res) => {
         // eslint-disable-next-line no-console
         console.error("[supabase][auth rooms] error:", roomError);
       } else if (room) {
-        reconnect = {
-          available: true,
-          roomId: room.id as string,
-          gameId: null,
-          roomTitle: room.title as string,
-          phase: room.phase === "game" ? "game" : "lobby",
-          note: null,
-        };
+        // 재접속은 "게임 중인 방" 에 대해서만 허용한다.
+        if (room.phase === "game") {
+          reconnect = {
+            available: true,
+            roomId: room.id as string,
+            gameId: null,
+            roomTitle: room.title as string,
+            phase: "game",
+            note: null,
+          };
+        } else {
+          // lobby/closed 등은 재접속 대상에서 제외
+          reconnect = {
+            available: false,
+            roomId: null,
+            gameId: null,
+            roomTitle: null,
+            phase: null,
+            note: null,
+          };
+        }
       }
     } else if (rpError) {
       // eslint-disable-next-line no-console

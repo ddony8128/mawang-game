@@ -36,7 +36,8 @@ export type EngineTask =
         | "PROCESS_DEATH_CHAIN"
         | "CHECK_END"
         | "APPLY_DAMAGE"
-        | "APPLY_HEAL";
+      | "APPLY_HEAL"
+      | "ABORT_GAME";
       payload: any;
     };
 

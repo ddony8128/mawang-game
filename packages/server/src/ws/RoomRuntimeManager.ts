@@ -352,7 +352,11 @@ export class RoomRuntime {
 
   // ping 전송 및 타임아웃 강제 사망 처리
   sendPingAndCheckTimeout(nowMs: number) {
+    let connectionCount = 0;
+    let allMissedAtLeastFive = true;
+
     for (const state of this.connections.values()) {
+      connectionCount += 1;
       // ping 전송
       this.sendJson(state.socket, {
         type: "ping",
@@ -363,6 +367,9 @@ export class RoomRuntime {
       });
 
       state.missCount += 1;
+      if (state.missCount < 5) {
+        allMissedAtLeastFive = false;
+      }
       if (state.missCount >= 10) {
         // 5분 동안 pong 이 없으면 타임아웃 사망 처리
         this.engine.enqueue({
@@ -380,6 +387,20 @@ export class RoomRuntime {
         }
         this.connections.delete(state.roomPlayerId);
       }
+    }
+
+    // 방에 속한 모든 유저가 5번 연속으로 pong 을 보내지 않은 경우,
+    // 게임을 ABORTED 상태로 종료한다.
+    if (connectionCount > 0 && allMissedAtLeastFive) {
+      this.engine.enqueue({
+        kind: "SYSTEM_TASK",
+        atMs: nowMs,
+        // ENGINE TASK 타입에 맞추기 위해 any 캐스트 (ABORT_GAME 은 INTERNAL_TASK 에서 처리)
+        type: "ABORT_GAME",
+      } as any);
+      this.flushEngineOutputs();
+
+      // RoomRuntimeManager 가 endState 를 받아 모든 소켓을 닫고 rooms 맵을 정리한다.
     }
   }
 
@@ -460,39 +481,10 @@ export class RoomRuntimeManager {
       const roomPlayerId: string = payload.roomPlayerId;
       const sessionToken: string = payload.sessionToken;
 
-      // 로그: ready 메시지 처리 시작
-      // eslint-disable-next-line no-console
-      console.log(`[RoomRuntimeManager] Received "ready" message from socket`, {
-        roomId,
-        roomPlayerId,
-        sessionToken: sessionToken ? "[REDACTED]" : undefined,
-      });
-
       try {
-        // 로그: 세션 검증 시작
-        // eslint-disable-next-line no-console
-        console.log(`[RoomRuntimeManager] Verifying room session...`, {
-          roomId,
-          roomPlayerId,
-        });
         const verified = await verifyRoomSession({ roomId, roomPlayerId, sessionToken });
 
-        // 로그: 세션 검증 성공
-        // eslint-disable-next-line no-console
-        console.log(`[RoomRuntimeManager] Session verified`, {
-          roomId: verified.roomId,
-          roomPlayerId: verified.roomPlayerId,
-          isHost: verified.isHost,
-        });
-
         const room = this.getOrCreateRoom(roomId);
-        // 로그: RoomRuntime 인스턴스 준비, 연결 첨부
-        // eslint-disable-next-line no-console
-        console.log(`[RoomRuntimeManager] Attaching connection for`, {
-          roomId: verified.roomId,
-          roomPlayerId: verified.roomPlayerId,
-          isHost: verified.isHost,
-        });
         room.attachConnection({
           socket,
           roomId: verified.roomId,
@@ -504,12 +496,6 @@ export class RoomRuntimeManager {
 
         // 스냅샷 존재 여부 검사 및 필요시 생성
         let snapshot = room.getSnapshot();
-        // 로그: room.getSnapshot() 결과
-        // eslint-disable-next-line no-console
-        console.log(`[RoomRuntimeManager] Room snapshot fetched`, {
-          exists: !!snapshot,
-          roomId: verified.roomId,
-        });
 
         if (!snapshot) {
           // 동일 roomId 에 대해 초기 스냅샷이 동시에 여러 번 생성되지 않도록
@@ -517,43 +503,16 @@ export class RoomRuntimeManager {
           let initPromise = this.initialSnapshotPromises.get(roomId);
 
           if (!initPromise) {
-            // 로그: 초기 스냅샷 최초 생성 시도
-            // eslint-disable-next-line no-console
-            console.log(
-              `[RoomRuntimeManager] Creating initial snapshot for room (first time)`,
-              {
-                roomId: verified.roomId,
-              },
-            );
-
             initPromise = (async () => {
               const created = await createInitialSnapshotForRoom(roomId);
               if (!created) return null;
 
               room.setSnapshot(created);
-
-              // 로그: 초기 스냅샷 생성 성공, DB 저장 시도
-              // eslint-disable-next-line no-console
-              console.log(
-                `[RoomRuntimeManager] Saving initial snapshot to DB`,
-                {
-                  gameId: created.ids.gameId,
-                  roomId: verified.roomId,
-                },
-              );
               try {
                 await saveSnapshot({
                   gameId: created.ids.gameId,
                   snapshot: created,
                 });
-                // 로그: DB 저장 성공
-                // eslint-disable-next-line no-console
-                console.log(
-                  `[RoomRuntimeManager] Successfully saved initial snapshot to DB`,
-                  {
-                    gameId: created.ids.gameId,
-                  },
-                );
               } catch (err) {
                 // eslint-disable-next-line no-console
                 console.error(
@@ -566,12 +525,6 @@ export class RoomRuntimeManager {
             })();
 
             this.initialSnapshotPromises.set(roomId, initPromise);
-          } else {
-            // eslint-disable-next-line no-console
-            console.log(
-              `[RoomRuntimeManager] Waiting for in-progress initial snapshot for room`,
-              { roomId: verified.roomId },
-            );
           }
 
           snapshot = await initPromise;
@@ -596,13 +549,6 @@ export class RoomRuntimeManager {
 
         // 엔진 스냅샷이 있으면 fogged snapshot 전송
         if (snapshot) {
-          // 로그: fogged snapshot 생성 시작
-          // eslint-disable-next-line no-console
-          console.log(`[RoomRuntimeManager] Creating and sending fogged snapshot to player`, {
-            roomId: verified.roomId,
-            roomPlayerId: verified.roomPlayerId,
-          });
-
           const fogged = createFoggedState(snapshot, verified.roomPlayerId);
           const msgReady = {
             type: "snapshot",
@@ -610,12 +556,6 @@ export class RoomRuntimeManager {
           };
           try {
             socket.send(JSON.stringify(msgReady));
-            // 로그: fogged snapshot 전송 성공
-            // eslint-disable-next-line no-console
-            console.log(`[RoomRuntimeManager] Sent fogged snapshot to player`, {
-              roomId: verified.roomId,
-              roomPlayerId: verified.roomPlayerId,
-            });
           } catch (e) {
             // 로그: fogged snapshot 전송 실패
             // eslint-disable-next-line no-console
@@ -628,12 +568,6 @@ export class RoomRuntimeManager {
             );
           }
         }
-        // 로그: ready 프로세스 정상 완료
-        // eslint-disable-next-line no-console
-        console.log(`[RoomRuntimeManager] Finished handling "ready" message for`, {
-          roomId: verified.roomId,
-          roomPlayerId: verified.roomPlayerId,
-        });
         return;
       } catch (err) {
         // 로그: 예외 발생

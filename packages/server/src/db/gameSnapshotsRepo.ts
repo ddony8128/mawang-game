@@ -80,10 +80,12 @@ export async function recordGameEnd(endState: GameEndState) {
 
   const endedAt = new Date(endedAtMs).toISOString();
 
+  const nextState = reason === "ABORTED" ? "aborted" : "ended";
+
   const { error: gameError } = await supabase
     .from("games")
     .update({
-      state: "ended",
+      state: nextState,
       ended_at: endedAt,
       end_reason: reason,
       end_state_json: endState as unknown as Record<string, any>,
@@ -95,20 +97,26 @@ export async function recordGameEnd(endState: GameEndState) {
     console.error("[supabase][recordGameEnd] update games error:", gameError);
   }
 
-  for (const r of results) {
-    const column = r.win ? "wins" : "losses";
-    const { error: rpError } = await supabase.rpc("increment_room_player_stat", {
-      p_room_player_id: r.playerId,
-      p_column: column,
-      p_delta: 1,
-    });
-
-    if (rpError) {
-      // eslint-disable-next-line no-console
-      console.error(
-        "[supabase][recordGameEnd] update room_players error:",
-        rpError,
+  // ABORTED 게임은 전적(wins/losses)을 변경하지 않는다.
+  if (reason !== "ABORTED") {
+    for (const r of results) {
+      const column = r.win ? "wins" : "losses";
+      const { error: rpError } = await supabase.rpc(
+        "increment_room_player_stat",
+        {
+          p_room_player_id: r.playerId,
+          p_column: column,
+          p_delta: 1,
+        },
       );
+
+      if (rpError) {
+        // eslint-disable-next-line no-console
+        console.error(
+          "[supabase][recordGameEnd] update room_players error:",
+          rpError,
+        );
+      }
     }
   }
 }
