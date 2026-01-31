@@ -17,6 +17,7 @@ export type UiAbility = {
   description: string;
   cooldown: number; // seconds
   lastUsedAt?: number; // ms
+  used?: boolean; // 1회성 스킬 등 영구 사용 여부
 };
 
 export type UiPlayerStatus = {
@@ -74,6 +75,11 @@ export type UiGameSettings = {
   handLimit: number;
   fearKingReviveHp: number;
   chaosKingPersistTime: number;
+  teamCounts?: {
+    traitor: number;
+    hero: number;
+    civil: number;
+  };
 };
 
 export type UiGameState = {

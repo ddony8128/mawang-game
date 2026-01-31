@@ -136,25 +136,25 @@ export function HowToPlayPage() {
           <Section title="👥 역할">
             <div className="space-y-4">
               <RoleCategory
-                title="악 팀"
+                title="악 팀 (마왕 / 배신자)"
                 icon={<Skull className="w-4 h-4" />}
                 color="text-evil"
               >
                 <RoleItem
                   name="공포의 마왕"
-                  description="사망 시 1회 부활, 겁주기로 상대 2분간 행동 불가"
+                  description="능력: 공포의 재림(1회, 사망 시 생명력 3으로 부활하며 부활 시 정체 전체 공개), 겁주기(쿨타임 3분, 대상 1명 2분간 행동 불가)"
                 />
                 <RoleItem
                   name="분탕의 마왕"
-                  description="사망 시 3분간 생존, 돋보기에 다른 역할로 표시 가능"
+                  description="능력: 분탕의 집념(1회, 사망 시에도 3분간 죽지 않고 생존), 가면놀이(1회, 게임 동안 돋보기 대상이 될 때 보일 역할을 지정)"
                 />
                 <RoleItem
                   name="참모"
-                  description="마왕 정체 + 용사 종류 알고 시작"
+                  description="능력: 악의 하수인(게임 시작 시 마왕 정체를 알고 시작), 레이드 정보(이번 게임에 어떤 용사 역할이 존재하는지, 모든 용사가 있다면 어떤 시민이 있는지도 알고 시작)"
                 />
                 <RoleItem
                   name="타락자"
-                  description="마왕 정체 알고 시작, 상대에게 맥주 확정 드로우"
+                  description="능력: 악의 하수인(게임 시작 시 마왕 정체를 알고 시작), 술자리 권유(쿨타임 3분, 대상 1명 다음 카드 뽑기에서 확정적으로 맥주 획득)"
                 />
               </RoleCategory>
 
@@ -165,42 +165,42 @@ export function HowToPlayPage() {
               >
                 <RoleItem
                   name="패링맨"
-                  description="1분간 피해 무효 (쿨타임 3분)"
+                  description="능력: 무적방패(쿨타임 3분, 1분간 모든 피해 무효)"
                 />
                 <RoleItem
                   name="슬레이어"
-                  description="1회 필살기로 3 데미지 (공격자 공개)"
+                  description="능력: 짱쎈 필살기(1회 사용, 대상 1명에게 3 데미지, 사용 시 누가 누구를 공격했는지 전체 공개)"
                 />
                 <RoleItem
                   name="현자"
-                  description="돋보기 카드 2장 추가 보유 시작"
+                  description="능력: 예언(돋보기를 뽑을 경우, 돋보기 한 장을 추가로 획득)"
                 />
                 <RoleItem
                   name="힐러"
-                  description="타인 생명력 1 회복 (쿨타임 3분)"
+                  description="능력: 회복 마법(쿨타임 3분, 대상 1명의 생명력 1 회복)"
                 />
               </RoleCategory>
 
               <RoleCategory
-                title="시민"
+                title="선 팀 (시민)"
                 icon={<Crown className="w-4 h-4" />}
                 color="text-citizen"
               >
                 <RoleItem
                   name="약골"
-                  description="생명력 2로 시작, 본인도 실제 HP 모름"
+                  description="능력: 만성 피로(생명력 2로 시작), 꾀병(생명력이 비정상적으로 표시되어 본인도 실제 생명력을 알 수 없음)"
                 />
                 <RoleItem
                   name="겁쟁이"
-                  description="카드 사용 50% 확률로 실패"
+                  description="능력: 손떨림(카드 사용 시 50% 확률로 무효 처리)"
                 />
                 <RoleItem
                   name="정신병자"
-                  description="자신을 용사로 착각 (능력 미발동)"
+                  description="능력: 망상(자신을 용사라고 인식해 UI 상 용사로 표기되지만, 실제로 능력은 발동되지 않음)"
                 />
                 <RoleItem
                   name="실험체"
-                  description="사망 시 악 팀 전원 카드 2장 획득"
+                  description="능력: 저주의 숙주(사망 시 악 팀 전원이 카드 2장씩 획득)"
                 />
               </RoleCategory>
             </div>

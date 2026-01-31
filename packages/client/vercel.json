@@ -7,7 +7,7 @@
     {
       "source": "/ws",
       "destination": "https://mawang-game.onrender.com/ws"
-    }
+    },
       { "source": "/(.*)", "destination": "/" }
     ]
   }

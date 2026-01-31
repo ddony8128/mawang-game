@@ -45,8 +45,8 @@ export default function PlayerList({
   knownInfo,
 }: PlayerListProps) {
   return (
-    <div className="max-w-3xl mx-auto w-full px-4 py-3">
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+    <div className="max-w-3xl mx-auto w-full px-4 py-4">
+      <div className="grid grid-cols-2 gap-3">
         {players.map((p) => {
           const isMe = p.id === myPlayerId;
           const isSelected = p.id === selectedPlayerId;
@@ -72,39 +72,39 @@ export default function PlayerList({
               onClick={() =>
                 onSelectPlayer(isSelected ? null : p.id)
               }
-              className={`glass-card rounded-lg px-3 py-2 text-left border ${borderColor} ${bgColor} transition-all hover:border-primary/60 hover:shadow-glow-purple`}
+              className={`glass-card rounded-xl px-3 py-3 text-left border ${borderColor} ${bgColor} transition-all hover:border-primary/60 hover:shadow-glow-purple`}
             >
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1">
-                    {roleIconKey && ROLE_ICON_URL[roleIconKey] && (
-                      <img
-                        src={ROLE_ICON_URL[roleIconKey]}
-                        alt=""
-                        className="w-4 h-4 rounded-sm object-contain mr-0.5"
-                      />
-                    )}
-                    <span className="font-semibold text-sm truncate">
+              <div className="flex items-center gap-3">
+                {roleIconKey && ROLE_ICON_URL[roleIconKey] && (
+                  <img
+                    src={ROLE_ICON_URL[roleIconKey]}
+                    alt=""
+                    className="w-16 h-16 rounded-md object-contain border border-border/60 bg-background/40 shrink-0"
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-base truncate">
                       {p.nickname}
                       {isMe && (
-                        <span className="text-primary text-xs ml-1">
+                        <span className="text-primary text-sm ml-1">
                           (나)
                         </span>
                       )}
                     </span>
                     {p.isDead && (
-                      <Skull className="w-3 h-3 text-destructive shrink-0" />
+                      <Skull className="w-4 h-4 text-destructive shrink-0" />
                     )}
                   </div>
-                  <div className="flex flex-col mt-1 gap-0.5 text-[11px] text-muted-foreground">
-                    <div className="flex items-center gap-1">
-                      <HpDots hp={p.hp} maxHp={p.maxHp} />
+                  <div className="flex flex-col mt-2 gap-1 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <HpHearts hp={p.hp} maxHp={p.maxHp} />
                       {info?.team && (
                         <span
                           className={
                             info.team === "evil"
-                              ? "text-evil ml-1"
-                              : "text-good ml-1"
+                              ? "text-evil font-semibold"
+                              : "text-good font-semibold"
                           }
                         >
                           {info.team === "evil" ? "악" : "선"} 확정
@@ -112,24 +112,21 @@ export default function PlayerList({
                       )}
                     </div>
                     {info?.roleName && (
-                      <div className="text-[11px] text-foreground/80">
+                      <div className="text-xs text-foreground/80">
                         역할: <span className="font-medium">{info.roleName}</span>
+                      </div>
+                    )}
+                    {p.status.hasBomb && (
+                      <div className="flex items-center gap-1 text-xs text-destructive mt-1">
+                        <Bomb className="w-4 h-4" />
+                        <span>폭탄</span>
+                        <span className="font-mono">
+                          {formatCountdown(p.status.hasBomb.remainingSeconds)}
+                        </span>
                       </div>
                     )}
                   </div>
                 </div>
-
-                {p.status.hasBomb && (
-                  <div className="flex flex-col items-end text-[10px] text-destructive">
-                    <div className="flex items-center gap-1">
-                      <Bomb className="w-3 h-3" />
-                      <span>폭탄</span>
-                    </div>
-                    <span className="opacity-80">
-                      {Math.ceil(p.status.hasBomb.remainingSeconds / 60)}분 후
-                    </span>
-                  </div>
-                )}
               </div>
             </button>
           );
@@ -139,18 +136,22 @@ export default function PlayerList({
   );
 }
 
-function HpDots({ hp, maxHp }: { hp: number; maxHp: number }) {
+function HpHearts({ hp, maxHp }: { hp: number; maxHp: number }) {
   return (
     <div className="flex items-center gap-0.5">
       {Array.from({ length: maxHp }).map((_, i) => (
-        <span
-          key={i}
-          className={`h-1.5 w-3 rounded-full ${
-            i < hp ? "bg-primary" : "bg-muted"
-          }`}
-        />
+        <span key={i} className="text-lg leading-none">
+          {i < hp ? "❤️" : "🤍"}
+        </span>
       ))}
     </div>
   );
+}
+
+function formatCountdown(totalSeconds: number): string {
+  const sec = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(sec / 60);
+  const seconds = sec % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 

@@ -25,7 +25,9 @@ export async function listRooms(params: ListRoomsParams) {
     .select(
       "id,title,is_locked,max_players,phase,updated_at,room_players!inner(id,nickname,is_host)",
     )
-    .in("phase", ["lobby", "game"])
+    // 삭제된 방(closed)이나 이미 진행 중인 방(game)은 목록에서 제외하고
+    // 로비에 있는 방(lobby)만 노출한다.
+    .eq("phase", "lobby")
     .order("updated_at", { ascending: false })
     .limit(limit);
 

@@ -3,8 +3,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.StubGameEngine = void 0;
-exports.createStubGameEngine = createStubGameEngine;
+exports.GameEngineImpl = void 0;
+exports.createGameEngine = createGameEngine;
 const crypto_1 = __importDefault(require("crypto"));
 function ensurePrivateUpdate(map, playerId) {
     let update = map.get(playerId);
@@ -33,8 +33,9 @@ function appendLogItem(log, partial) {
 // CoreGameLogicDesign 기반 기본 엔진 구현.
 // - EngineTask 큐를 직렬 처리하고
 // - HP/사망/손패 일부 규칙을 적용해 appliedAck / invalid_action / delta 를 생성한다.
-// 아직 모든 카드/역할/타이머를 다루지는 않지만, 이후 확장 가능한 뼈대를 제공한다.
-class StubGameEngine {
+// - 아직 모든 카드/역할/타이머를 다루지는 않지만, 이후 확장 가능한 뼈대를 제공한다.
+//   (과거에는 StubGameEngine 이라는 이름으로 사용되던 실제 메인 엔진 구현체)
+class GameEngineImpl {
     queue = [];
     state = null;
     timerRegistry;
@@ -1540,7 +1541,7 @@ class StubGameEngine {
         }
     }
 }
-exports.StubGameEngine = StubGameEngine;
-function createStubGameEngine(timerRegistry) {
-    return new StubGameEngine(timerRegistry);
+exports.GameEngineImpl = GameEngineImpl;
+function createGameEngine(timerRegistry) {
+    return new GameEngineImpl(timerRegistry);
 }

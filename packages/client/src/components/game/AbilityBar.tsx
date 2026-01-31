@@ -41,7 +41,7 @@ export default function AbilityBar({
                 key={ability.id}
                 size="sm"
                 variant="secondary"
-                disabled={disabled || isOnCooldown}
+                disabled={disabled || isOnCooldown || ability.used}
                 onClick={() => onUseAbility(ability.id)}
                 className="shrink-0 min-w-[140px] justify-start"
               >
@@ -50,9 +50,11 @@ export default function AbilityBar({
                     {ability.name}
                   </span>
                   <span className="text-[11px] text-muted-foreground line-clamp-2">
-                    {isOnCooldown
-                      ? `쿨타임 ${remainingSec}초`
-                      : ability.description}
+                    {ability.used
+                      ? "이미 사용한 일회성 능력입니다"
+                      : isOnCooldown
+                        ? `쿨타임 ${remainingSec}초`
+                        : ability.description}
                   </span>
                 </div>
               </Button>

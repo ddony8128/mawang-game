@@ -89,16 +89,12 @@ export function LobbyPage() {
     gmFixedRoles: {},
   });
 
-  const roomInfo = {
-    title: "마왕 잡으러 갈 사람!",
-    hasPassword: false,
-    maxPlayers: 10,
-  };
-
   const allOthersReady = players
     .filter((p) => !p.isHost)
     .every((p) => p.isReady);
-  const canStart = isHost && allOthersReady && players.length >= 6;
+  // TODO: GDD 상 최소 인원은 6명이지만,
+  // 개발/테스트 편의를 위해 일시적으로 2인 플레이를 허용한다.
+  const canStart = isHost && allOthersReady && players.length >= 2;
 
   const handleToggleReady = async () => {
     if (!roomId) return;
@@ -307,9 +303,9 @@ export function LobbyPage() {
             );
           })}
 
-          {!canStart && isHost && players.length < 6 && (
+          {!canStart && isHost && players.length < 2 && (
             <p className="text-center text-muted-foreground text-sm py-4">
-              최소 6명이 필요합니다 (현재 {players.length}명)
+              최소 2명이 필요합니다 (현재 {players.length}명)
             </p>
           )}
         </div>

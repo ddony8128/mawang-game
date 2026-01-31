@@ -53,8 +53,9 @@ function appendLogItem(
 // CoreGameLogicDesign 기반 기본 엔진 구현.
 // - EngineTask 큐를 직렬 처리하고
 // - HP/사망/손패 일부 규칙을 적용해 appliedAck / invalid_action / delta 를 생성한다.
-// 아직 모든 카드/역할/타이머를 다루지는 않지만, 이후 확장 가능한 뼈대를 제공한다.
-export class StubGameEngine implements GameEngine {
+// - 아직 모든 카드/역할/타이머를 다루지는 않지만, 이후 확장 가능한 뼈대를 제공한다.
+//   (과거에는 StubGameEngine 이라는 이름으로 사용되던 실제 메인 엔진 구현체)
+export class GameEngineImpl implements GameEngine {
   private readonly queue: EngineTask[] = [];
   private state: GameSnapshot | null = null;
   private readonly timerRegistry?: TimerRegistry;
@@ -1845,9 +1846,9 @@ export class StubGameEngine implements GameEngine {
   }
 }
 
-export function createStubGameEngine(
+export function createGameEngine(
   timerRegistry?: TimerRegistry,
 ): GameEngine {
-  return new StubGameEngine(timerRegistry);
+  return new GameEngineImpl(timerRegistry);
 }
 

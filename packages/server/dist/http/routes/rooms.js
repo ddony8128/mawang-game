@@ -21,6 +21,28 @@ function getDeviceIdHeader(req) {
     const v = Array.isArray(raw) ? raw[0] : raw;
     return v && v.length > 0 ? v : null;
 }
+// GDD 기반 기본 게임 설정 (document/ServerStateModel 3. GameSettings)
+const DEFAULT_GAME_SETTINGS = {
+    // 카드/드로우
+    drawIntervalSec: 180, // 3분
+    bombDelaySec: 300, // 5분
+    handLimit: 4,
+    // 마왕
+    fearReviveHp: 3,
+    trollSurviveSec: 180,
+    // 팀 구성(마왕 1명 + 아래 구성)
+    teamCounts: {
+        traitor: 1,
+        hero: 3,
+        civil: 1,
+    },
+    // GM 모드 (기본 비활성화)
+    gmMode: {
+        enabled: false,
+        hostIsGM: false,
+        fixedRoles: {},
+    },
+};
 function hashRoomPassword(roomId, password) {
     // 방 비밀번호용 단순 해시 (roomId 를 salt 로 사용)
     return crypto_1.default.scryptSync(password, roomId, 32).toString("hex");
@@ -60,6 +82,7 @@ exports.roomsRouter.post("/", async (req, res) => {
             title: roomTitle,
             is_locked: isLocked,
             password_hash: passwordHash,
+            settings: DEFAULT_GAME_SETTINGS,
         })
             .select("*")
             .single();
@@ -194,7 +217,7 @@ exports.roomsRouter.get("/:roomId/poll", auth_1.requireRoomAuth, async (req, res
     try {
         const { data: room, error: roomError } = await supabase_1.supabase
             .from("rooms")
-            .select("id,title,phase,host_player_id")
+            .select("id,title,phase,host_player_id,settings")
             .eq("id", roomId)
             .single();
         if (roomError || !room) {
@@ -204,8 +227,16 @@ exports.roomsRouter.get("/:roomId/poll", auth_1.requireRoomAuth, async (req, res
         }
         const players = await (0, roomPlayersRepo_1.listRoomPlayers)(roomId);
         // v1: countdown / revision / unchanged 는 단순 값으로 응답
-        const countdown = null;
-        const revision = Date.now();
+        const nowMs = Date.now();
+        const settings = room.settings ?? {};
+        const endsAtMsRaw = settings.lobbyCountdownEndsAtMs;
+        let countdown = null;
+        if (typeof endsAtMsRaw === "number") {
+            const endsAtMs = endsAtMsRaw;
+            const active = nowMs < endsAtMs;
+            countdown = { active, endsAtMs };
+        }
+        const revision = nowMs;
         (0, apiResponse_1.sendOk)(res, {
             room: {
                 roomId: room.id,
@@ -348,8 +379,11 @@ exports.roomsRouter.post("/:roomId/start", auth_1.requireRoomAuth, auth_1.requir
         // 인원/준비 상태 검증
         const players = await (0, roomPlayersRepo_1.listRoomPlayers)(roomId);
         const inRoomPlayers = players.filter((p) => p.is_in_room);
-        if (inRoomPlayers.length < 6) {
-            return (0, apiResponse_1.sendError)(res, "CONFLICT", "at least 6 players required", 409);
+        // TODO: GDD 상 최소 인원은 6명이지만,
+        // 개발/테스트 편의를 위해 일시적으로 2인 플레이를 허용한다.
+        // 2인 방일 경우 역할은 "랜덤 마왕 1명 + 랜덤 용사 1명"으로 구성된다.
+        if (inRoomPlayers.length < 2) {
+            return (0, apiResponse_1.sendError)(res, "CONFLICT", "at least 2 players required", 409);
         }
         const maxPlayers = room.max_players ?? 10;
         if (inRoomPlayers.length > maxPlayers) {
@@ -367,23 +401,29 @@ exports.roomsRouter.post("/:roomId/start", auth_1.requireRoomAuth, auth_1.requir
         // 게임 row 생성
         // - v1: seq 는 1부터 시작하는 단순 값으로 사용한다.
         //   (추후 여러 판을 지원할 때는 games 테이블에서 room_id 기준 max(seq)+1 을 계산하도록 확장 가능)
-        const settings = room.settings ?? {};
+        const currentSettings = room.settings ?? {};
         const gameRecord = await (0, gamesRepo_1.createGameForRoom)({
             roomId,
-            settings,
+            settings: currentSettings,
         });
         const gameId = gameRecord.id;
         // 방 phase 를 game 으로 전환
+        const endsAtMs = Date.now() + countdownSec * 1000;
         const { error: updateRoomError } = await supabase_1.supabase
             .from("rooms")
-            .update({ phase: "game" })
+            .update({
+            phase: "game",
+            settings: {
+                ...currentSettings,
+                lobbyCountdownEndsAtMs: endsAtMs,
+            },
+        })
             .eq("id", roomId);
         if (updateRoomError) {
             // eslint-disable-next-line no-console
             console.error("[supabase][start room update rooms.phase] error:", updateRoomError);
             return (0, apiResponse_1.sendError)(res, "INTERNAL_ERROR", "failed to update room phase", 500);
         }
-        const endsAtMs = Date.now() + countdownSec * 1000;
         (0, apiResponse_1.sendOk)(res, {
             started: true,
             countdown: {

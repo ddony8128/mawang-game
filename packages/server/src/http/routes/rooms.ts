@@ -9,6 +9,7 @@ import { listRooms } from "../../db/roomsRepo";
 import { supabase } from "../../db/supabase";
 import { sendError, sendOk } from "../apiResponse";
 import { requireHost, requireRoomAuth } from "../middleware/auth";
+import type { GameSettings } from "../../types/gameSettings";
 
 export const roomsRouter = Router();
 
@@ -18,6 +19,32 @@ function getDeviceIdHeader(req: import("express").Request): string | null {
   const v = Array.isArray(raw) ? raw[0] : raw;
   return v && v.length > 0 ? v : null;
 }
+
+// GDD 기반 기본 게임 설정 (document/ServerStateModel 3. GameSettings)
+const DEFAULT_GAME_SETTINGS: GameSettings = {
+  // 카드/드로우
+  drawIntervalSec: 180, // 3분
+  bombDelaySec: 300, // 5분
+  handLimit: 4,
+
+  // 마왕
+  fearReviveHp: 3,
+  trollSurviveSec: 180,
+
+  // 팀 구성(마왕 1명 + 아래 구성)
+  teamCounts: {
+    traitor: 1,
+    hero: 3,
+    civil: 1,
+  },
+
+  // GM 모드 (기본 비활성화)
+  gmMode: {
+    enabled: false,
+    hostIsGM: false,
+    fixedRoles: {},
+  },
+};
 
 function hashRoomPassword(roomId: string, password: string): string {
   // 방 비밀번호용 단순 해시 (roomId 를 salt 로 사용)
@@ -64,6 +91,7 @@ roomsRouter.post("/", async (req, res) => {
         title: roomTitle,
         is_locked: isLocked,
         password_hash: passwordHash,
+        settings: DEFAULT_GAME_SETTINGS,
       })
       .select("*")
       .single();
@@ -402,8 +430,11 @@ roomsRouter.post("/:roomId/start", requireRoomAuth, requireHost, async (req, res
     const players = await listRoomPlayers(roomId);
     const inRoomPlayers = players.filter((p) => p.is_in_room);
 
-    if (inRoomPlayers.length < 6) {
-      return sendError(res, "CONFLICT", "at least 6 players required", 409);
+    // TODO: GDD 상 최소 인원은 6명이지만,
+    // 개발/테스트 편의를 위해 일시적으로 2인 플레이를 허용한다.
+    // 2인 방일 경우 역할은 "랜덤 마왕 1명 + 랜덤 용사 1명"으로 구성된다.
+    if (inRoomPlayers.length < 2) {
+      return sendError(res, "CONFLICT", "at least 2 players required", 409);
     }
     const maxPlayers = room.max_players ?? 10;
     if (inRoomPlayers.length > maxPlayers) {
@@ -449,8 +480,6 @@ roomsRouter.post("/:roomId/start", requireRoomAuth, requireHost, async (req, res
       console.error("[supabase][start room update rooms.phase] error:", updateRoomError);
       return sendError(res, "INTERNAL_ERROR", "failed to update room phase", 500);
     }
-
-    const endsAtMs = Date.now() + countdownSec * 1000;
 
     sendOk(res, {
       started: true,

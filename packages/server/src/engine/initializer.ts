@@ -17,11 +17,13 @@ type GameRow = {
   rng_seed: string;
 };
 
-function makeDeterministicRng(seed: string) {
+function makeDeterministicRng(seed: string | number) {
   let counter = 0;
   const next = () => {
     const hash = crypto.createHash("sha256");
-    hash.update(seed);
+    // Supabase 가 BIGINT 컬럼을 number 로 반환하는 경우가 있어
+    // 항상 문자열로 변환한 뒤 해시에 넣어준다.
+    hash.update(String(seed));
     hash.update(String(counter));
     const digest = hash.digest();
     const a = digest.readUInt32BE(0);
@@ -127,7 +129,25 @@ export async function createInitialSnapshotForRoom(
     return null;
   }
 
-  const settings = gameRow.settings;
+  const rawSettings = (gameRow.settings as Partial<GameSettings>) ?? {};
+  const settings: GameSettings = {
+    drawIntervalSec: rawSettings.drawIntervalSec ?? 180,
+    bombDelaySec: rawSettings.bombDelaySec ?? 300,
+    handLimit: rawSettings.handLimit ?? 4,
+    fearReviveHp: rawSettings.fearReviveHp ?? 3,
+    trollSurviveSec: rawSettings.trollSurviveSec ?? 180,
+    teamCounts: {
+      traitor: rawSettings.teamCounts?.traitor ?? 1,
+      hero: rawSettings.teamCounts?.hero ?? 3,
+      civil: rawSettings.teamCounts?.civil ?? 1,
+    },
+    gmMode: {
+      enabled: rawSettings.gmMode?.enabled ?? false,
+      hostIsGM: rawSettings.gmMode?.hostIsGM ?? false,
+      fixedRoles: rawSettings.gmMode?.fixedRoles ?? {},
+    },
+  };
+
   const rngSeed = gameRow.rng_seed;
   const nowMs = Date.now();
 
@@ -145,7 +165,14 @@ export async function createInitialSnapshotForRoom(
   let heroTarget = settings.teamCounts?.hero ?? baseComp.hero;
   let civilTarget = settings.teamCounts?.civil ?? baseComp.civil;
 
-  if (traitorTarget + heroTarget + civilTarget !== totalNonMawang) {
+  // [임시 처리] 2인 방일 경우: 랜덤 마왕 1명 + 랜덤 용사 1명
+  // - 마왕은 항상 1명이므로 비(非)마왕 인원은 1명
+  // - 이 1명을 용사로 강제 배치하고, 배신자/시민은 0으로 고정한다.
+  if (totalPlayers === 2) {
+    traitorTarget = 0;
+    heroTarget = totalNonMawang; // 1
+    civilTarget = 0;
+  } else if (traitorTarget + heroTarget + civilTarget !== totalNonMawang) {
     // 합이 맞지 않으면 GDD 기본 구성으로 되돌린다.
     traitorTarget = baseComp.traitor;
     heroTarget = baseComp.hero;
@@ -205,7 +232,11 @@ export async function createInitialSnapshotForRoom(
     if (shuffledPlayers.length === 0) return null;
     mawangId = shuffledPlayers[0];
     if (!roleByPlayer.has(mawangId)) {
-      roleByPlayer.set(mawangId, "mawang_fear");
+      // [임시 처리] 2인 방에서는 마왕 역할도 랜덤으로 선택한다.
+      // - "공포의 마왕" 또는 "분탕의 마왕" 중 하나
+      const mawangRoles: RoleKey[] = ["mawang_fear", "mawang_troll"];
+      const chosenMawang = totalPlayers === 2 ? randomChoice(mawangRoles, rng.next) : "mawang_fear";
+      roleByPlayer.set(mawangId, chosenMawang);
     }
   }
 

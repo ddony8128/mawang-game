@@ -79,6 +79,29 @@ export type WsClientMessage =
 
 import type { FoggedGameState, FoggedLogItem } from "./foggedGame";
 
+// 서버의 GameEndState (packages/server/src/types/gameSettings.ts) 와 동일한 구조를
+// 클라이언트에서 재정의하여 사용한다.
+export type GameEndReason = "MAWANG_DEAD" | "ALL_HERO_DEAD" | "ABORTED";
+
+export type GameEndPlayerResult = {
+  playerId: string;
+  nickname: string;
+  win: boolean;
+  alive: boolean;
+  role: string;
+  team: "good" | "evil";
+  side: "evil" | "traitor" | "hero" | "civil";
+};
+
+export type GameEndState = {
+  gameId: string;
+  roomId: string;
+  seq: number;
+  endedAtMs: number;
+  reason: GameEndReason;
+  results: GameEndPlayerResult[];
+};
+
 export type WsServerPingPayload = {
   pingId: string;
   serverTs: number;
@@ -118,7 +141,7 @@ export type WsServerErrorPayload = {
 };
 
 export type WsServerEndPayload = {
-  endState: any; // GameEndState 의 fogged 버전 (필요 시 상세 정의)
+  endState: GameEndState;
 };
 
 export type WsServerMessage =

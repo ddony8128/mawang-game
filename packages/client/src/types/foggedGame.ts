@@ -65,6 +65,20 @@ export type FoggedGameState = {
     nextDrawAtMs: number;
   };
 
+  // 서버 GameSettings 에서 클라이언트가 알아야 하는 요약 정보
+  settings: {
+    drawIntervalSec: number;
+    bombDelaySec: number;
+    handLimit: number;
+    fearReviveHp: number;
+    trollSurviveSec: number;
+    teamCounts: {
+      traitor: number;
+      hero: number;
+      civil: number;
+    };
+  };
+
   me: {
     playerId: string;
     nickname: string;

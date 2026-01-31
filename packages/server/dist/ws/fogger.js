@@ -44,6 +44,14 @@ function createFoggedState(snapshot, viewerId) {
         timers: {
             nextDrawAtMs: snapshot.timers.nextDrawAtMs,
         },
+        settings: {
+            drawIntervalSec: snapshot.settings.drawIntervalSec,
+            bombDelaySec: snapshot.settings.bombDelaySec,
+            handLimit: snapshot.settings.handLimit,
+            fearReviveHp: snapshot.settings.fearReviveHp,
+            trollSurviveSec: snapshot.settings.trollSurviveSec,
+            teamCounts: snapshot.settings.teamCounts,
+        },
         me: {
             playerId: me.identity.playerId,
             nickname: me.identity.nickname,

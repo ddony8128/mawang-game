@@ -49,6 +49,19 @@ export type FoggedGameState = {
   timers: {
     nextDrawAtMs: number;
   };
+  // 클라이언트에서 인게임 규칙/설정 요약에 사용하는 값들
+  settings: {
+    drawIntervalSec: number;
+    bombDelaySec: number;
+    handLimit: number;
+    fearReviveHp: number;
+    trollSurviveSec: number;
+    teamCounts: {
+      traitor: number;
+      hero: number;
+      civil: number;
+    };
+  };
   me: {
     playerId: string;
     nickname: string;
@@ -131,6 +144,14 @@ export function createFoggedState(
     },
     timers: {
       nextDrawAtMs: snapshot.timers.nextDrawAtMs,
+    },
+    settings: {
+      drawIntervalSec: snapshot.settings.drawIntervalSec,
+      bombDelaySec: snapshot.settings.bombDelaySec,
+      handLimit: snapshot.settings.handLimit,
+      fearReviveHp: snapshot.settings.fearReviveHp,
+      trollSurviveSec: snapshot.settings.trollSurviveSec,
+      teamCounts: snapshot.settings.teamCounts,
     },
     me: {
       playerId: me.identity.playerId,

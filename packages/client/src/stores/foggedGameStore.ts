@@ -75,6 +75,10 @@ export const useFoggedGameStore = create<FoggedGameStore>()(
             ...current.timers,
             ...(patch.timers ?? {}),
           },
+          settings: {
+            ...current.settings,
+            ...(patch as any).settings,
+          },
           me: {
             ...current.me,
             ...(patch.me ?? {}),
@@ -113,19 +117,28 @@ export const useFoggedGameStore = create<FoggedGameStore>()(
           },
         });
 
-        // modal=true 인 항목은 UI 모달 큐에 적재
+        // modal=true 인 항목은 UI 모달 큐에 적재하고,
+        // 동일한 내용의 modalUi 정보를 로그에도 함께 남긴다.
         const uiStore = useUIStore.getState();
         for (const item of newItems) {
           if (!item.modal) continue;
 
           const template = buildModalTemplate(item);
 
+          // 로그 아이템 자체에도 사람이 읽을 수 있는 modalUi 를 채워 넣는다.
+          // (규칙/로그 탭에서 같은 내용을 재사용하기 위함)
+          (item as any).modalUi = {
+            title: template.title,
+            message: template.message,
+            imageUrl: template.imageUrl,
+          };
+
           uiStore.pushModal({
             id: item.id,
-            title: item.modalUi?.title ?? template.title,
-            message: item.modalUi?.message ?? template.message,
+            title: template.title,
+            message: template.message,
             createdAtMs: item.atMs,
-            imageUrl: item.modalUi?.imageUrl ?? template.imageUrl,
+            imageUrl: template.imageUrl,
           });
         }
       },
@@ -178,12 +191,30 @@ function buildModalTemplate(
         message: "분탕의 마왕이 잠시 죽지 않는 집념 상태에 돌입했습니다.",
         imageUrl: imgTrollStubborn,
       };
-    case "GLOBAL_SLAYER_ULT_USED":
+    case "GLOBAL_SLAYER_ULT_USED": {
+      const state = useFoggedGameStore.getState().state;
+      const byPlayerId =
+        typeof p.byPlayerId === "string" ? (p.byPlayerId as string) : null;
+      const targetPlayerId =
+        typeof p.targetPlayerId === "string" ? (p.targetPlayerId as string) : null;
+
+      const byName =
+        (state &&
+          byPlayerId &&
+          state.players.find((pl) => pl.playerId === byPlayerId)?.nickname) ||
+        "슬레이어";
+      const targetName =
+        (state &&
+          targetPlayerId &&
+          state.players.find((pl) => pl.playerId === targetPlayerId)?.nickname) ||
+        "알 수 없는 대상";
+
       return {
         title: "슬레이어의 필살기",
-        message: "슬레이어가 필살기를 사용했습니다. 누군가 큰 피해를 입었습니다.",
+        message: `${byName}이(가) ${targetName}에게 필살기를 사용했습니다.`,
         imageUrl: imgSlayerUlt,
       };
+    }
     case "PERSONAL_DIED":
       return {
         title: "사망",

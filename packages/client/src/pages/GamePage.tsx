@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Book, Scroll, StickyNote } from "lucide-react";
 
@@ -16,6 +16,7 @@ import PlayerRevealModal from "@/components/game/PlayerRevealModal";
 import type {
   UiAbility,
   UiCard,
+  UiGameEvent,
   UiGameState,
   UiPlayer,
   UiRole,
@@ -24,6 +25,7 @@ import type {
 import { wsClient } from "@/api/ws";
 import { useClientStore } from "@/stores/clientStore";
 import { useFoggedGameStore } from "@/stores/foggedGameStore";
+import { useGameResultStore } from "@/stores/resultStore";
 import type { FoggedGameState } from "@/types/foggedGame";
 import { Button } from "@/components/ui/button";
 
@@ -98,6 +100,8 @@ export function GamePage() {
     "connecting" | "connected" | "reconnecting" | "error"
   >("connecting");
 
+  const setEndState = useGameResultStore((s) => s.setEndState);
+
   // FoggedGameState → UiGameState 매핑
   useEffect(() => {
     if (!foggedState || !roomId) return;
@@ -107,30 +111,7 @@ export function GamePage() {
     );
   }, [foggedState, roomId]);
 
-  if (!roomId) {
-    return null;
-  }
-
-  if (!gameState) {
-    return (
-      <div className="min-h-screen bg-gradient-dark flex items-center justify-center">
-        <div className="text-muted-foreground text-sm">게임 상태를 불러오는 중...</div>
-      </div>
-    );
-  }
-
-  const myPlayer = gameState.players.find(
-    (p) => p.id === gameState.myPlayerId
-  )!;
-  const selectedCard =
-    myPlayer.hand.find((c) => c.id === selectedCardId) || null;
-  const selectedPlayer = gameState.players.find(
-    (p) => p.id === selectedPlayerId
-  );
-
-  const mustDiscard =
-    myPlayer.hand.length > gameState.settings.handLimit;
-
+  // WS 연결 시작 (gameState 가 아직 없어도 roomId / session 만 있으면 바로 연결)
   useEffect(() => {
     if (!roomId || !session) return;
 
@@ -142,21 +123,29 @@ export function GamePage() {
       roomId,
       gameId: null,
       onEnd: (payload) => {
-        const endState = payload.endState as any;
-        if (!endState || !gameState) return;
+        const endState = payload.endState;
+        if (!endState) return;
+
+        // 전역 스토어에 종료 상태 저장 (ResultPage 에서 사용)
+        setEndState(endState);
+
+        // 게임 화면에서의 결과 모달/역할 공개를 위해 UI 상태도 설정
+        if (!gameState) return;
 
         const myResult = endState.results.find(
-          (r: any) => r.playerId === gameState.myPlayerId,
+          (r) => r.playerId === gameState.myPlayerId,
         );
 
         const isVictory = !!myResult?.win;
-        const winningTeam = endState.reason === "MAWANG_DEAD" ? "good" : "evil";
+        const winningTeam: UiTeam =
+          endState.reason === "MAWANG_DEAD" ? "good" : "evil";
 
-        const revealed = endState.results.map((r: any) => ({
+        const revealed = endState.results.map((r) => ({
           id: r.playerId,
           nickname: r.nickname,
           isDead: !r.alive,
-          roleName: r.role,
+          roleName: ROLE_DISPLAY_NAME[r.role] ?? r.role,
+          roleKey: r.role,
           team: r.team === "good" ? ("good" as UiTeam) : ("evil" as UiTeam),
           isWinner: !!r.win,
         }));
@@ -168,10 +157,19 @@ export function GamePage() {
           reason:
             endState.reason === "MAWANG_DEAD"
               ? "마왕이 사망했습니다!"
-              : "모든 용사가 사망했습니다!",
+              : endState.reason === "ALL_HERO_DEAD"
+                ? "모든 용사가 사망했습니다!"
+                : "게임이 중단되었습니다.",
         });
       },
       onError: (msg) => {
+        // 서버에서 오는 에러를 콘솔에 로깅해 원인을 파악한다.
+        // payload.code, payload.message, payload.next 값을 확인하면
+        // 왜 로비(/rooms)로 이동하는지 정확히 알 수 있다.
+        // 예) GAME_NOT_FOUND, AUTH_FAILED, NOT_IN_GAME 등
+        // eslint-disable-next-line no-console
+        console.error("[GamePage][WS error]", msg.payload);
+
         const next = msg.payload.next;
         if (next === "retry_ready") {
           // v1: 짧은 대기 후 ready 재전송 시도
@@ -198,42 +196,76 @@ export function GamePage() {
     };
   }, [roomId, session, navigate]);
 
-  // 손패 제한 체크
+  // 손패 제한 체크 (gameState 가 아직 없을 수도 있으므로 내부에서 방어)
   useEffect(() => {
-    if (mustDiscard) {
+    if (!gameState) return;
+    const me = gameState.players.find((p) => p.id === gameState.myPlayerId);
+    if (!me) return;
+    const needDiscard = me.hand.length > gameState.settings.handLimit;
+    if (needDiscard) {
       setShowDiscard(true);
     }
-  }, [mustDiscard, myPlayer.hand.length, gameState.settings.handLimit]);
+  }, [gameState]);
 
-  // 카드 드로우 타이머
+  // 카드 드로우 타이머 (gameState 가 null 인 경우를 방어)
   useEffect(() => {
     const interval = setInterval(() => {
-      setGameState((prev) => ({
-        ...prev,
-        nextCardDrawInSeconds: Math.max(0, prev.nextCardDrawInSeconds - 1),
-      }));
+      setGameState((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          nextCardDrawInSeconds: Math.max(
+            0,
+            prev.nextCardDrawInSeconds - 1,
+          ),
+        };
+      });
     }, 1000);
     return () => clearInterval(interval);
   }, []);
 
+  if (!roomId) {
+    return null;
+  }
+
+  if (!gameState) {
+    return (
+      <div className="min-h-screen bg-gradient-dark flex items-center justify-center">
+        <div className="text-muted-foreground text-sm">게임 상태를 불러오는 중...</div>
+      </div>
+    );
+  }
+
+  const myPlayer = gameState.players.find(
+    (p) => p.id === gameState.myPlayerId
+  )!;
+  const selectedCard =
+    myPlayer.hand.find((c) => c.id === selectedCardId) || null;
+  const selectedPlayer = gameState.players.find(
+    (p) => p.id === selectedPlayerId
+  );
+
+  const mustDiscard =
+    myPlayer.hand.length > gameState.settings.handLimit;
+
   // 카드 사용 가능 여부
-  const canUseCard = useCallback(() => {
+  const canUseCard = () => {
     if (!selectedCard) return false;
     if (connectionStatus !== "connected") return false;
     if (mustDiscard) return false;
     if (myPlayer.status.isIntimidated) return false;
     if (selectedCard.type === "beer") return true;
     return selectedPlayerId !== null;
-  }, [selectedCard, selectedPlayerId, myPlayer.status.isIntimidated, mustDiscard]);
+  };
 
   // 카드 양도 가능 여부
-  const canTransferCard = useCallback(() => {
+  const canTransferCard = () => {
     if (!selectedCard) return false;
     if (connectionStatus !== "connected") return false;
     if (mustDiscard) return false;
     if (myPlayer.status.isIntimidated) return false;
     return selectedPlayerId !== null;
-  }, [selectedCard, selectedPlayerId, myPlayer.status.isIntimidated, mustDiscard]);
+  };
 
   const buildActionBase = () => {
     if (!roomId || !session || !foggedState) return null;
@@ -291,33 +323,6 @@ export function GamePage() {
 
     setSelectedCardId(null);
     setSelectedPlayerId(null);
-  };
-
-  // 게임 종료 테스트용
-  const handleGameEnd = (isGoodTeamWin: boolean) => {
-    const winningTeam: "good" | "evil" = isGoodTeamWin ? "good" : "evil";
-    const myTeam = myPlayer.role?.team as UiTeam | undefined;
-    const isVictory =
-      myTeam === winningTeam || (myTeam === "citizen" && winningTeam === "good");
-
-    const revealed = gameState.players.map((p) => ({
-      id: p.id,
-      nickname: p.nickname,
-      isDead: p.isDead,
-      roleName: p.role?.name || "???",
-      roleKey: p.role?.id,
-      team: (p.role?.team ?? "citizen") as UiTeam,
-      isWinner:
-        (p.role?.team === winningTeam ||
-          (p.role?.team === "citizen" && winningTeam === "good")) ?? false,
-    }));
-
-    setRevealedPlayers(revealed);
-    setGameResult({
-      isVictory,
-      winningTeam,
-      reason: isGoodTeamWin ? "마왕이 사망했습니다!" : "모든 용사가 사망했습니다!",
-    });
   };
 
   const handleGameResultConfirm = () => {
@@ -532,28 +537,8 @@ export function GamePage() {
         defaultTab={drawerTab}
         eventLog={gameState.eventLog}
         roomId={roomId || "test"}
-        playerId={gameState.myPlayerId}
+        settings={gameState.settings}
       />
-
-      {/* 개발용 게임 종료 테스트 버튼 */}
-      <div className="fixed top-20 right-2 flex flex-col gap-1 z-50">
-        <Button
-          size="sm"
-          variant="outline"
-          className="text-xs opacity-50 hover:opacity-100"
-          onClick={() => handleGameEnd(true)}
-        >
-          🏆 선팀 승리
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="text-xs opacity-50 hover:opacity-100"
-          onClick={() => handleGameEnd(false)}
-        >
-          💀 악팀 승리
-        </Button>
-      </div>
     </div>
   );
 }
@@ -656,17 +641,37 @@ function buildUiRole(state: FoggedGameState): UiRole | undefined {
       description: def.description,
       cooldown: def.cooldown,
       lastUsedAt,
+      used: false,
     };
   });
 
-  // 슬레이어의 필살기는 1회 기술이므로, 이미 사용했다면 사실상 재사용 불가로 표시
+  // 1회성 스킬들: 사용 여부를 플래그로 표시해 UI 에서 비활성화한다.
+  // 엔진은 이미 ONE_TIME_USED invalid 로직을 갖고 있으므로,
+  // 여기서는 순수히 표시용이다.
   if (roleKey === "slayer") {
     const ultUsed = state.me.effects.some((e) => e.kind === "slayerUltUsed");
-    if (ultUsed && abilities.length > 0) {
-      const bigCooldown = 3600; // 1시간짜리 가짜 쿨타임으로 비활성화
+    if (ultUsed) {
       abilities.forEach((ability) => {
-        ability.cooldown = bigCooldown;
-        ability.lastUsedAt = state.meta.nowMs;
+        if (ability.id === "slayer_ult") {
+          ability.used = true;
+        }
+      });
+    }
+  }
+
+  if (roleKey === "mawang_troll") {
+    // 분탕의 마왕: 가면놀이는 1회성 스킬.
+    // PERSONAL_SKILL_USED 로그에서 skillKey 로 사용 여부를 유추한다.
+    const maskUsed = state.log.items.some(
+      (item) =>
+        item.type === "PERSONAL_SKILL_USED" &&
+        item.payload?.skillKey === "mawang_mask",
+    );
+    if (maskUsed) {
+      abilities.forEach((ability) => {
+        if (ability.id === "mawang_mask") {
+          ability.used = true;
+        }
       });
     }
   }
@@ -744,12 +749,12 @@ function mapFoggedToUi(state: FoggedGameState, roomId: string): UiGameState {
         const entry: { team?: UiTeam; roleName?: string; roleKey?: string } = {};
 
         const teamKnown = roles.find((r) => r.kind === "team");
-        if (teamKnown) {
+        if (teamKnown && teamKnown.kind === "team") {
           entry.team = teamKnown.team === "good" ? "good" : "evil";
         }
 
         const roleKnown = roles.find((r) => r.kind === "role");
-        if (roleKnown) {
+        if (roleKnown && roleKnown.kind === "role") {
           const name = ROLE_DISPLAY_NAME[roleKnown.role];
           if (name) {
             entry.roleName = name;
@@ -776,6 +781,16 @@ function mapFoggedToUi(state: FoggedGameState, roomId: string): UiGameState {
     };
   });
 
+  const eventLog: UiGameEvent[] = state.log.items.map((item) => ({
+    id: item.id,
+    timestamp: item.atMs,
+    // v1: 세부 타입은 UI 에서 크게 쓰이지 않으므로 ability_use 로 통일
+    type: "ability_use",
+    // modal=true 인 항목은 modalUi.message 를 그대로 사용해,
+    // "알림" 에서 본 것과 동일한 내용을 로그에서도 볼 수 있게 한다.
+    message: item.modalUi?.message || item.type,
+  }));
+
   const uiState: UiGameState = {
     roomId,
     myPlayerId: myId,
@@ -785,13 +800,18 @@ function mapFoggedToUi(state: FoggedGameState, roomId: string): UiGameState {
     ),
     gamePhase: state.meta.state === "running" ? "playing" : "ended",
     settings: {
-      cardDrawInterval: 0,
-      bombTimer: 0,
-      handLimit: state.me.hand.length,
-      fearKingReviveHp: 0,
-      chaosKingPersistTime: 0,
+      cardDrawInterval: state.settings?.drawIntervalSec ?? 180,
+      bombTimer: state.settings?.bombDelaySec ?? 300,
+      handLimit: state.settings?.handLimit ?? 4,
+      fearKingReviveHp: state.settings?.fearReviveHp ?? 3,
+      chaosKingPersistTime: state.settings?.trollSurviveSec ?? 180,
+      teamCounts: state.settings?.teamCounts ?? {
+        traitor: 1,
+        hero: 3,
+        civil: 1,
+      },
     },
-    eventLog: [],
+    eventLog,
     players,
   };
 

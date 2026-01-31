@@ -1,7 +1,7 @@
 import type { WebSocket } from "ws";
 
 import type { EngineOutput, GameEngine, TimerRegistry } from "../engine/types";
-import { createStubGameEngine } from "../engine/stubEngine";
+import { createGameEngine } from "../engine/stubEngine";
 import { createTimerRegistry } from "../engine/timerRegistry";
 import { AuthError, verifyRoomSession } from "../auth/authService";
 import type { GameSnapshot } from "../types/serverState";
@@ -29,14 +29,19 @@ export class RoomRuntime {
   private readonly connections = new Map<string, ConnectionState>();
   private snapshot: GameSnapshot | null = null;
   private readonly snapshotIntervalId: ReturnType<typeof setInterval>;
+  // 엔진 출력 처리 중 중복 호출을 막기 위한 플래그
+  private isFlushingEngineOutputs = false;
 
   constructor(roomId: string, engine?: GameEngine) {
     this.roomId = roomId;
     const timerRegistry = createTimerRegistry((task) => {
+      // 타이머 만료 등으로 EngineTask 가 enqueue 되었을 때마다
+      // 즉시 엔진 루프를 한 번 돌려 출력까지 처리한다.
       this.engine.enqueue(task);
+      this.flushEngineOutputs();
     });
     this.timerRegistry = timerRegistry;
-    this.engine = engine ?? createStubGameEngine(timerRegistry);
+    this.engine = engine ?? createGameEngine(timerRegistry);
 
     // 60초마다 현재 스냅샷을 DB에 저장
     this.snapshotIntervalId = setInterval(() => {
@@ -170,140 +175,144 @@ export class RoomRuntime {
 
   // EngineOutput 을 WS 메시지로 변환
   private flushEngineOutputs() {
+    if (this.isFlushingEngineOutputs) {
+      return;
+    }
+
+    this.isFlushingEngineOutputs = true;
+
     // 하나 이상 처리될 수 있으므로 루프
-    let out: EngineOutput | null;
-    // eslint-disable-next-line no-cond-assign
-    while ((out = this.engine.processLoop())) {
-      if (!this.snapshot) {
-        continue;
-      }
-
-      const snapshot = this.snapshot;
-
-      if (out.appliedAcks) {
-        for (const ack of out.appliedAcks) {
-          this.sendAck(ack.playerId, ack.actionId);
+    try {
+      let out: EngineOutput | null;
+      // eslint-disable-next-line no-cond-assign
+      while ((out = this.engine.processLoop())) {
+        if (!this.snapshot) {
+          continue;
         }
-      }
-      if (out.invalidActions) {
-        for (const inv of out.invalidActions) {
-          this.sendInvalidAction(inv.playerId, {
-            actionId: inv.actionId,
-            code: inv.code,
-            message: inv.message,
-          });
-        }
-      }
 
-      // delta 를 FoggedGameState patch 로 변환해 patch 이벤트로 per-player 로 전송
-      if (out.delta) {
-        const baseSnapshotVersion = snapshot.meta.snapshotVersion;
+        const snapshot = this.snapshot;
 
-        // 1) 서버 스냅샷에 delta 반영
-        if (out.delta.public?.players) {
-          for (const p of out.delta.public.players) {
-            const ps = snapshot.players[p.playerId];
-            if (ps) {
-              ps.hp = p.hp;
-              ps.alive = p.alive;
-            }
+        if (out.appliedAcks) {
+          for (const ack of out.appliedAcks) {
+            this.sendAck(ack.playerId, ack.actionId);
           }
         }
-        if (typeof out.delta.public?.nextDrawAtMs === "number") {
-          snapshot.timers.nextDrawAtMs = out.delta.public.nextDrawAtMs;
+        if (out.invalidActions) {
+          for (const inv of out.invalidActions) {
+            this.sendInvalidAction(inv.playerId, {
+              actionId: inv.actionId,
+              code: inv.code,
+              message: inv.message,
+            });
+          }
         }
 
-        // privateByPlayer.hand / know / stateChanged / logItems 등도
-        // 필요 시 여기서 snapshot 에 반영할 수 있지만,
-        // 현재 StubGameEngine 은 stateChanged 플래그만 사용하므로
-        // 스냅샷은 엔진이 직접 변경한 상태를 그대로 사용한다.
+        // delta 를 FoggedGameState patch 로 변환해 patch 이벤트로 per-player 로 전송
+        if (out.delta) {
+          const baseSnapshotVersion = snapshot.meta.snapshotVersion;
 
-        // snapshotVersion 증가
-        snapshot.meta.snapshotVersion += 1;
-        const nextSnapshotVersion = snapshot.meta.snapshotVersion;
-
-        // 2) 각 viewer 기준 FoggedGameState patch 생성 및 전송
-        const publicPlayersPatch =
-          out.delta.public?.players?.map((p) => ({
-            playerId: p.playerId,
-            alive: p.alive,
-            hp: p.hp,
-          })) ?? [];
-
-        const privateByPlayer = out.delta.privateByPlayer ?? {};
-
-        for (const state of this.connections.values()) {
-          const viewerId = state.roomPlayerId;
-          const priv = privateByPlayer[viewerId];
-
-          const patch: any = {};
-
-          if (publicPlayersPatch.length > 0) {
-            patch.players = publicPlayersPatch;
-          }
-
-          // nextDrawAtMs / nowMs / state 등 메타 정보는 공통
-          patch.meta = {
-            state: snapshot.meta.state,
-            nowMs: snapshot.timers.nowMs,
-          };
-          patch.timers = {
-            nextDrawAtMs: snapshot.timers.nextDrawAtMs,
-          };
-
-          let logItems: any[] = [];
-
-          if (priv) {
-            // stateChanged 가 true 이면 전체 me subtree 를 새로 계산해 replace
-            if (priv.stateChanged) {
-              const fogged = createFoggedState(snapshot, viewerId);
-              patch.me = fogged.me;
-            }
-
-            if (priv.logItems && priv.logItems.length > 0) {
-              // Engine 의 LogItem 을 FoggedLogItem 으로 얕게 매핑
-              logItems = priv.logItems.map((item) => ({
-                id: item.id,
-                seq: item.seq,
-                atMs: item.atMs,
-                type: item.type,
-                payload: item.payload,
-                modal: item.modal,
-              }));
+          // 1) 서버 스냅샷에 delta 반영
+          if (out.delta.public?.players) {
+            for (const p of out.delta.public.players) {
+              const ps = snapshot.players[p.playerId];
+              if (ps) {
+                ps.hp = p.hp;
+                ps.alive = p.alive;
+              }
             }
           }
+          if (typeof out.delta.public?.nextDrawAtMs === "number") {
+            snapshot.timers.nextDrawAtMs = out.delta.public.nextDrawAtMs;
+          }
 
-          this.sendJson(state.socket, {
-            type: "patch",
-            payload: {
-              baseSnapshotVersion,
-              nextSnapshotVersion,
-              patch,
-              logItems,
-            },
-          });
+          // snapshotVersion 증가
+          snapshot.meta.snapshotVersion += 1;
+          const nextSnapshotVersion = snapshot.meta.snapshotVersion;
+
+          // 2) 각 viewer 기준 FoggedGameState patch 생성 및 전송
+          const publicPlayersPatch =
+            out.delta.public?.players?.map((p) => ({
+              playerId: p.playerId,
+              alive: p.alive,
+              hp: p.hp,
+            })) ?? [];
+
+          const privateByPlayer = out.delta.privateByPlayer ?? {};
+
+          for (const state of this.connections.values()) {
+            const viewerId = state.roomPlayerId;
+            const priv = privateByPlayer[viewerId];
+
+            const patch: any = {};
+
+            if (publicPlayersPatch.length > 0) {
+              patch.players = publicPlayersPatch;
+            }
+
+            // nextDrawAtMs / nowMs / state 등 메타 정보는 공통
+            patch.meta = {
+              state: snapshot.meta.state,
+              nowMs: snapshot.timers.nowMs,
+            };
+            patch.timers = {
+              nextDrawAtMs: snapshot.timers.nextDrawAtMs,
+            };
+
+            let logItems: any[] = [];
+
+            if (priv) {
+              // stateChanged 가 true 이면 전체 me subtree 를 새로 계산해 replace
+              if (priv.stateChanged) {
+                const fogged = createFoggedState(snapshot, viewerId);
+                patch.me = fogged.me;
+              }
+
+              if (priv.logItems && priv.logItems.length > 0) {
+                // Engine 의 LogItem 을 FoggedLogItem 으로 얕게 매핑
+                logItems = priv.logItems.map((item) => ({
+                  id: item.id,
+                  seq: item.seq,
+                  atMs: item.atMs,
+                  type: item.type,
+                  payload: item.payload,
+                  modal: item.modal,
+                }));
+              }
+            }
+
+            this.sendJson(state.socket, {
+              type: "patch",
+              payload: {
+                baseSnapshotVersion,
+                nextSnapshotVersion,
+                patch,
+                logItems,
+              },
+            });
+          }
         }
-      }
 
-      // endState 가 있으면 end 이벤트 전송 및 RoomRuntime 정리 (v1: WS 송신까지만 구현)
-      if (out.endState) {
-        // 종료 상태를 DB 에 기록
-        void recordGameEnd(out.endState).catch((err) => {
-          // eslint-disable-next-line no-console
-          console.error("[RoomRuntime] failed to record game end:", err);
-        });
-
-        for (const state of this.connections.values()) {
-          this.sendJson(state.socket, {
-            type: "end",
-            payload: { endState: out.endState },
+        // endState 가 있으면 end 이벤트 전송 및 RoomRuntime 정리
+        if (out.endState) {
+          void recordGameEnd(out.endState).catch((err) => {
+            // eslint-disable-next-line no-console
+            console.error("[RoomRuntime] failed to record game end:", err);
           });
-          state.socket.close();
-        }
-        this.connections.clear();
-      }
 
-      // dbEvents 는 이후 games/game_snapshots 조합으로 처리
+          for (const state of this.connections.values()) {
+            this.sendJson(state.socket, {
+              type: "end",
+              payload: { endState: out.endState },
+            });
+            state.socket.close();
+          }
+          this.connections.clear();
+        }
+
+        // dbEvents 는 이후 games/game_snapshots 조합으로 처리
+      }
+    } finally {
+      this.isFlushingEngineOutputs = false;
     }
   }
 
@@ -394,6 +403,13 @@ export class RoomRuntime {
 export class RoomRuntimeManager {
   private readonly rooms = new Map<string, RoomRuntime>();
   private readonly pingIntervalId: ReturnType<typeof setInterval>;
+  // 방별 초기 스냅샷 생성이 동시에 여러 번 일어나는 것을 방지하기 위한 플래그/프로미스 맵
+  // - 동일 roomId 에 대해 최초 1회만 createInitialSnapshotForRoom 을 수행하고
+  // - 이후 ready 메시지는 해당 프로미스를 공유해 await 한다.
+  private readonly initialSnapshotPromises = new Map<
+    string,
+    Promise<GameSnapshot | null>
+  >();
 
   constructor() {
     // 30초마다 ping 을 보내고 pong 미수신 시 missCount 를 증가시킨다.
@@ -425,10 +441,39 @@ export class RoomRuntimeManager {
       const roomPlayerId: string = payload.roomPlayerId;
       const sessionToken: string = payload.sessionToken;
 
+      // 로그: ready 메시지 처리 시작
+      // eslint-disable-next-line no-console
+      console.log(`[RoomRuntimeManager] Received "ready" message from socket`, {
+        roomId,
+        roomPlayerId,
+        sessionToken: sessionToken ? "[REDACTED]" : undefined,
+      });
+
       try {
+        // 로그: 세션 검증 시작
+        // eslint-disable-next-line no-console
+        console.log(`[RoomRuntimeManager] Verifying room session...`, {
+          roomId,
+          roomPlayerId,
+        });
         const verified = await verifyRoomSession({ roomId, roomPlayerId, sessionToken });
 
+        // 로그: 세션 검증 성공
+        // eslint-disable-next-line no-console
+        console.log(`[RoomRuntimeManager] Session verified`, {
+          roomId: verified.roomId,
+          roomPlayerId: verified.roomPlayerId,
+          isHost: verified.isHost,
+        });
+
         const room = this.getOrCreateRoom(roomId);
+        // 로그: RoomRuntime 인스턴스 준비, 연결 첨부
+        // eslint-disable-next-line no-console
+        console.log(`[RoomRuntimeManager] Attaching connection for`, {
+          roomId: verified.roomId,
+          roomPlayerId: verified.roomPlayerId,
+          isHost: verified.isHost,
+        });
         room.attachConnection({
           socket,
           roomId: verified.roomId,
@@ -438,12 +483,87 @@ export class RoomRuntimeManager {
           lastPongAtMs: Date.now(),
         });
 
-        // 스냅샷이 없으면 초기 스냅샷을 생성한다.
+        // 스냅샷 존재 여부 검사 및 필요시 생성
         let snapshot = room.getSnapshot();
+        // 로그: room.getSnapshot() 결과
+        // eslint-disable-next-line no-console
+        console.log(`[RoomRuntimeManager] Room snapshot fetched`, {
+          exists: !!snapshot,
+          roomId: verified.roomId,
+        });
+
         if (!snapshot) {
-          snapshot = await createInitialSnapshotForRoom(roomId);
+          // 동일 roomId 에 대해 초기 스냅샷이 동시에 여러 번 생성되지 않도록
+          // 프로미스를 공유한다.
+          let initPromise = this.initialSnapshotPromises.get(roomId);
+
+          if (!initPromise) {
+            // 로그: 초기 스냅샷 최초 생성 시도
+            // eslint-disable-next-line no-console
+            console.log(
+              `[RoomRuntimeManager] Creating initial snapshot for room (first time)`,
+              {
+                roomId: verified.roomId,
+              },
+            );
+
+            initPromise = (async () => {
+              const created = await createInitialSnapshotForRoom(roomId);
+              if (!created) return null;
+
+              room.setSnapshot(created);
+
+              // 로그: 초기 스냅샷 생성 성공, DB 저장 시도
+              // eslint-disable-next-line no-console
+              console.log(
+                `[RoomRuntimeManager] Saving initial snapshot to DB`,
+                {
+                  gameId: created.ids.gameId,
+                  roomId: verified.roomId,
+                },
+              );
+              try {
+                await saveSnapshot({
+                  gameId: created.ids.gameId,
+                  snapshot: created,
+                });
+                // 로그: DB 저장 성공
+                // eslint-disable-next-line no-console
+                console.log(
+                  `[RoomRuntimeManager] Successfully saved initial snapshot to DB`,
+                  {
+                    gameId: created.ids.gameId,
+                  },
+                );
+              } catch (err) {
+                // eslint-disable-next-line no-console
+                console.error(
+                  "[RoomRuntimeManager] Failed to save initial snapshot:",
+                  err,
+                );
+              }
+
+              return created;
+            })();
+
+            this.initialSnapshotPromises.set(roomId, initPromise);
+          } else {
+            // eslint-disable-next-line no-console
+            console.log(
+              `[RoomRuntimeManager] Waiting for in-progress initial snapshot for room`,
+              { roomId: verified.roomId },
+            );
+          }
+
+          snapshot = await initPromise;
+          this.initialSnapshotPromises.delete(roomId);
+
           if (!snapshot) {
-            // running 게임 정보를 찾지 못하면 ready 를 거절하고 로비로 돌려보낸다.
+            // 로그: running 게임 정보 없음
+            // eslint-disable-next-line no-console
+            console.warn(`[RoomRuntimeManager] No running game found for room`, {
+              roomId,
+            });
             this.sendError(socket, {
               code: "GAME_NOT_FOUND",
               message: "no running game found for this room",
@@ -453,11 +573,17 @@ export class RoomRuntimeManager {
             socket.close();
             return;
           }
-          room.setSnapshot(snapshot);
         }
 
-        // 엔진 스냅샷이 있으면 viewer 기준 fogged snapshot 을 내려준다.
+        // 엔진 스냅샷이 있으면 fogged snapshot 전송
         if (snapshot) {
+          // 로그: fogged snapshot 생성 시작
+          // eslint-disable-next-line no-console
+          console.log(`[RoomRuntimeManager] Creating and sending fogged snapshot to player`, {
+            roomId: verified.roomId,
+            roomPlayerId: verified.roomPlayerId,
+          });
+
           const fogged = createFoggedState(snapshot, verified.roomPlayerId);
           const msgReady = {
             type: "snapshot",
@@ -465,13 +591,47 @@ export class RoomRuntimeManager {
           };
           try {
             socket.send(JSON.stringify(msgReady));
-          } catch {
-            // ignore
+            // 로그: fogged snapshot 전송 성공
+            // eslint-disable-next-line no-console
+            console.log(`[RoomRuntimeManager] Sent fogged snapshot to player`, {
+              roomId: verified.roomId,
+              roomPlayerId: verified.roomPlayerId,
+            });
+          } catch (e) {
+            // 로그: fogged snapshot 전송 실패
+            // eslint-disable-next-line no-console
+            console.error(
+              `[RoomRuntimeManager] Failed to send fogged snapshot to player`, {
+                roomId: verified.roomId,
+                roomPlayerId: verified.roomPlayerId,
+                error: e,
+              }
+            );
           }
         }
+        // 로그: ready 프로세스 정상 완료
+        // eslint-disable-next-line no-console
+        console.log(`[RoomRuntimeManager] Finished handling "ready" message for`, {
+          roomId: verified.roomId,
+          roomPlayerId: verified.roomPlayerId,
+        });
         return;
       } catch (err) {
+        // 로그: 예외 발생
+        // eslint-disable-next-line no-console
+        console.error("[RoomRuntimeManager] Error handling 'ready' message", {
+          roomId,
+          roomPlayerId,
+          error: err,
+        });
         if (err instanceof AuthError) {
+          // 로그: 인증 실패
+          // eslint-disable-next-line no-console
+          console.warn(`[RoomRuntimeManager] Auth failed for player`, {
+            roomId,
+            roomPlayerId,
+            error: err,
+          });
           this.sendError(socket, {
             code: "AUTH_FAILED",
             message: err.message,
@@ -479,6 +639,13 @@ export class RoomRuntimeManager {
             next: "go_lobby",
           });
         } else {
+          // 로그: 기타 인증 오류
+          // eslint-disable-next-line no-console
+          console.warn(`[RoomRuntimeManager] Failed to verify session`, {
+            roomId,
+            roomPlayerId,
+            error: err,
+          });
           this.sendError(socket, {
             code: "AUTH_FAILED",
             message: "failed to verify session",
